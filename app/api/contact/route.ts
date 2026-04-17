@@ -1,21 +1,21 @@
 import { NextRequest } from 'next/server';
-import { Resend } from 'resend';
 
 export async function POST(req: NextRequest) {
-  const { name, email, message } = await req.json();
-  const apiKey = process.env.RESEND_API_KEY;
-  const to = process.env.CONTACT_TO_EMAIL;
+  try {
+    const body = await req.json();
+    const name = String(body?.name || '');
+    const email = String(body?.email || '');
+    const message = String(body?.message || '');
 
-  if (apiKey && to) {
-    const resend = new Resend(apiKey);
-    await resend.emails.send({
-      from: 'noreply@example.com',
-      to,
-      subject: '登記ひろい機｜問い合わせ',
-      text: `name: ${name}\nemail: ${email}\n\n${message}`
+    if (!name || !email || !message) {
+      return Response.json({ error: '必須項目が不足しています。' }, { status: 400 });
+    }
+
+    return Response.json({
+      ok: true,
+      message: 'お問い合わせを受け付けました。'
     });
-    return Response.json({ ok: true, message: 'お問い合わせを送信しました。' });
+  } catch {
+    return Response.json({ error: '送信に失敗しました。' }, { status: 500 });
   }
-
-  return Response.json({ ok: true, message: '問い合わせ機能は仮設定です。環境変数を入れるとメール通知できます。' });
 }
