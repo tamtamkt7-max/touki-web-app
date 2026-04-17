@@ -5,7 +5,8 @@ import { applyTemplate, templateMap, type ExtractedFields } from '@/lib/template
 import { buildWorkbook } from '@/lib/excel';
 
 function makeTemplate(fields: ExtractedFields, templateKey = 'standard') {
-  const tpl = templateMap[(templateKey as keyof typeof templateMap)] ?? templateMap.standard;
+  const key = (templateKey as keyof typeof templateMap) || 'standard';
+  const tpl = templateMap[key] ?? templateMap.standard;
   return applyTemplate(tpl, fields);
 }
 
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   const contentType = req.headers.get('content-type') || '';
 
   if (contentType.includes('application/json')) {
-    const body = await req.json();
+    const body: { ocrText?: string; templateKey?: string } = await req.json();
     const fields = extractToukiFields(body.ocrText || '');
     return Response.json({ fields, template: makeTemplate(fields, body.templateKey) });
   }
@@ -35,8 +36,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const { fields, subject, body } = await req.json() as { fields: ExtractedFields; subject: string; body: string };
-  const workbook = buildWorkbook(fields, subject, body);
+  const payload: { fields: ExtractedFields; subject: string; body: string } = await req.json();
+  const workbook = buildWorkbook(payload.fields, payload.subject, payload.body);
+
   return new Response(workbook, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
