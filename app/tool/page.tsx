@@ -1,3 +1,4 @@
+'use client';
 import { ToolClient } from '@/components/ToolClient';
 
 export default function ToolPage() {
