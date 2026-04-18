@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextRequest } from 'next/server';
 import pdf from 'pdf-parse';
 import { extractToukiFields } from '@/lib/extract';
