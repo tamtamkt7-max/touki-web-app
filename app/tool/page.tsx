@@ -1,4 +1,5 @@
-'use client';
+export const dynamic = 'force-dynamic';
+
 import { ToolClient } from '@/components/ToolClient';
 
 export default function ToolPage() {
