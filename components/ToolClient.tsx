@@ -18,6 +18,10 @@ type ParseResponse = {
   };
 };
 
+function hasEnoughText(text: string) {
+  return text.replace(/\s/g, '').length >= 20;
+}
+
 async function extractTextLayerFromPdf(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
@@ -54,7 +58,7 @@ async function renderPdfPagesToImages(file: File) {
 
     await page.render({
       canvasContext: context,
-      viewport,
+      viewport
     }).promise;
 
     images.push(canvas.toDataURL('image/png'));
@@ -75,14 +79,54 @@ async function extractTextWithOcr(file: File) {
   return fullText.trim();
 }
 
-async function extractTextFromPdf(file: File) {
-  const textLayer = await extractTextLayerFromPdf(file);
+async function parseWithRawText(rawText: string) {
+  const res = await fetch('/api/parse', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ rawText })
+  });
 
-  if (textLayer.replace(/\s/g, '').length >= 20) {
-    return textLayer;
+  const text = await res.text();
+
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(text || '解析に失敗しました。');
   }
 
-  return await extractTextWithOcr(file);
+  if (!res.ok) {
+    throw new Error(data?.error || '解析に失敗しました。');
+  }
+
+  return data as ParseResponse;
+}
+
+async function parseWithServerPdf(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch('/api/parse', {
+    method: 'POST',
+    body: formData
+  });
+
+  const text = await res.text();
+
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(text || '解析に失敗しました。');
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || '解析に失敗しました。');
+  }
+
+  return data as ParseResponse;
 }
 
 export function ToolClient() {
@@ -90,6 +134,7 @@ export function ToolClient() {
   const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<ParseResponse | null>(null);
   const [error, setError] = useState('');
+  const [statusText, setStatusText] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const summaryCards = useMemo(() => {
@@ -99,7 +144,7 @@ export function ToolClient() {
       { label: '所在地', value: result.fields.location || '未抽出' },
       { label: '地番', value: result.fields.number || '未抽出' },
       { label: '土地の面積', value: result.fields.area || '未抽出' },
-      { label: '建物の面積', value: result.fields.buildingArea || '未抽出' },
+      { label: '建物の面積', value: result.fields.buildingArea || '未抽出' }
     ];
   }, [result]);
 
@@ -112,38 +157,50 @@ export function ToolClient() {
     }
 
     setLoading(true);
+    setDragging(false);
     setError('');
     setResult(null);
+    setStatusText('PDFの文字を確認しています…');
 
     try {
-      const rawText = await extractTextFromPdf(file);
+      const textLayer = await extractTextLayerFromPdf(file);
 
-      const res = await fetch('/api/parse', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ rawText }),
-      });
+      if (hasEnoughText(textLayer)) {
+        setStatusText('文字を整理しています…');
+        const parsed = await parseWithRawText(textLayer);
+        setResult(parsed);
+        setStatusText('');
+        return;
+      }
 
-      const text = await res.text();
-
-      let data: any;
+      setStatusText('別の方法でPDFを確認しています…');
       try {
-        data = JSON.parse(text);
+        const serverParsed = await parseWithServerPdf(file);
+        setResult(serverParsed);
+        setStatusText('');
+        return;
       } catch {
-        throw new Error(text || '解析に失敗しました。');
+        // サーバー読取がダメでもOCRへ進む
       }
 
-      if (!res.ok) {
-        throw new Error(data?.error || '解析に失敗しました。');
+      setStatusText('画像として読み取っています…');
+      const ocrText = await extractTextWithOcr(file);
+
+      if (!hasEnoughText(ocrText)) {
+        throw new Error(
+          'このPDFは文字をうまく読み取れませんでした。文字が入ったPDFか、より鮮明なPDFでお試しください。'
+        );
       }
 
-      setResult(data);
+      setStatusText('読み取った内容を整理しています…');
+      const parsed = await parseWithRawText(ocrText);
+      setResult(parsed);
+      setStatusText('');
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。'
       );
+      setStatusText('');
     } finally {
       setLoading(false);
     }
@@ -155,11 +212,11 @@ export function ToolClient() {
     const res = await fetch('/api/parse', {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        fields: result.fields,
-      }),
+        fields: result.fields
+      })
     });
 
     if (!res.ok) {
@@ -191,7 +248,7 @@ export function ToolClient() {
         style={{
           ...styles.dropzone,
           ...(dragging ? styles.dropzoneActive : {}),
-          ...(loading ? styles.dropzoneLoading : {}),
+          ...(loading ? styles.dropzoneLoading : {})
         }}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => {
@@ -220,7 +277,7 @@ export function ToolClient() {
           </h2>
           <p style={styles.dropText}>
             {loading
-              ? '内容を整理しています。少しだけお待ちください。'
+              ? statusText || '内容を整理しています。少しだけお待ちください。'
               : 'またはクリックしてPDFを選択'}
           </p>
         </div>
@@ -299,17 +356,17 @@ const styles: Record<string, React.CSSProperties> = {
   wrapper: {
     maxWidth: 1100,
     margin: '0 auto',
-    padding: '32px 20px 80px',
+    padding: '32px 20px 80px'
   },
   hero: {
-    marginBottom: 24,
+    marginBottom: 24
   },
   title: {
     margin: 0,
     fontSize: 'clamp(28px, 4vw, 52px)',
     lineHeight: 1.15,
     letterSpacing: '-0.02em',
-    color: '#f8fafc',
+    color: '#f8fafc'
   },
   lead: {
     marginTop: 16,
@@ -317,7 +374,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#cbd5e1',
     fontSize: 16,
     lineHeight: 1.9,
-    maxWidth: 760,
+    maxWidth: 760
   },
   dropzone: {
     border: '2px dashed rgba(255,255,255,0.18)',
@@ -327,14 +384,14 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     cursor: 'pointer',
     transition: '0.2s ease',
-    backdropFilter: 'blur(8px)',
+    backdropFilter: 'blur(8px)'
   },
   dropzoneActive: {
     borderColor: '#60a5fa',
-    background: 'rgba(96,165,250,0.12)',
+    background: 'rgba(96,165,250,0.12)'
   },
   dropzoneLoading: {
-    opacity: 0.85,
+    opacity: 0.85
   },
   dropzoneInner: {
     minHeight: 180,
@@ -342,26 +399,26 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+    gap: 10
   },
   dropIcon: {
-    fontSize: 40,
+    fontSize: 40
   },
   dropTitle: {
     margin: 0,
     fontSize: 24,
-    color: '#f8fafc',
+    color: '#f8fafc'
   },
   dropText: {
     margin: 0,
     color: '#cbd5e1',
-    fontSize: 15,
+    fontSize: 15
   },
   safeRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
     gap: 12,
-    marginTop: 16,
+    marginTop: 16
   },
   safeItem: {
     padding: '12px 14px',
@@ -370,7 +427,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#e2e8f0',
     fontSize: 14,
     textAlign: 'center',
-    border: '1px solid rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.08)'
   },
   errorBox: {
     marginTop: 20,
@@ -378,52 +435,52 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     background: '#fef2f2',
     color: '#b91c1c',
-    border: '1px solid #fecaca',
+    border: '1px solid #fecaca'
   },
   resultArea: {
-    marginTop: 32,
+    marginTop: 32
   },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
     gap: 16,
-    marginBottom: 24,
+    marginBottom: 24
   },
   card: {
     background: '#fff',
     border: '1px solid #e2e8f0',
     borderRadius: 20,
     padding: 18,
-    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.04)',
+    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.04)'
   },
   cardLabel: {
     fontSize: 13,
     color: '#64748b',
-    marginBottom: 8,
+    marginBottom: 8
   },
   cardValue: {
     fontSize: 18,
     fontWeight: 700,
     wordBreak: 'break-word',
-    color: '#0f172a',
+    color: '#0f172a'
   },
   twoColumn: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: 20,
+    gap: 20
   },
   panel: {
     background: '#fff',
     border: '1px solid #e2e8f0',
     borderRadius: 20,
     padding: 20,
-    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.04)',
+    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.04)'
   },
   panelTitle: {
     marginTop: 0,
     marginBottom: 16,
     fontSize: 20,
-    color: '#0f172a',
+    color: '#0f172a'
   },
   historyList: {
     margin: 0,
@@ -431,7 +488,7 @@ const styles: Record<string, React.CSSProperties> = {
     listStyle: 'none',
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 12
   },
   historyItem: {
     display: 'flex',
@@ -440,7 +497,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     borderRadius: 14,
     background: '#f8fafc',
-    color: '#0f172a',
+    color: '#0f172a'
   },
   historyIndex: {
     width: 28,
@@ -452,10 +509,10 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: 700,
-    flexShrink: 0,
+    flexShrink: 0
   },
   emptyText: {
-    color: '#64748b',
+    color: '#64748b'
   },
   textarea: {
     width: '100%',
@@ -466,12 +523,12 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 14,
     fontSize: 14,
     lineHeight: 1.6,
-    color: '#0f172a',
+    color: '#0f172a'
   },
   downloadRow: {
     marginTop: 24,
     display: 'flex',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-end'
   },
   downloadButton: {
     border: 'none',
@@ -481,27 +538,27 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     background: '#111827',
-    color: '#fff',
+    color: '#fff'
   },
   infoArea: {
-    marginTop: 28,
+    marginTop: 28
   },
   infoCard: {
     background: 'rgba(255,255,255,0.08)',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 24,
     padding: 24,
-    color: '#f8fafc',
+    color: '#f8fafc'
   },
   infoTitle: {
     marginTop: 0,
     marginBottom: 16,
-    fontSize: 24,
+    fontSize: 24
   },
   infoList: {
     margin: 0,
     paddingLeft: 20,
     lineHeight: 1.9,
-    color: '#e2e8f0',
-  },
+    color: '#e2e8f0'
+  }
 };
