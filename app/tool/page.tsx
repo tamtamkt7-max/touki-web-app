@@ -1,7 +1,5 @@
 export const dynamic = 'force-dynamic';
 
-'use client';
-
 import { ToolClient } from '@/components/ToolClient';
 
 export default function ToolPage() {
@@ -9,7 +7,7 @@ export default function ToolPage() {
     <main
       style={{
         minHeight: '100vh',
-        background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)',
+        background: 'linear-gradient(180deg, #08112b 0%, #0b173d 100%)',
       }}
     >
       <ToolClient />
