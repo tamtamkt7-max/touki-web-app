@@ -1,54 +1,77 @@
-export type ParsedResult = {
-  propertyName: string;
+export type ExtractedFields = {
   location: string;
-  lotNumber: string;
-  landArea: string;
+  number: string;
+  area: string;
   buildingArea: string;
-  usage: string;
   owner: string;
-  rawText: string;
+  ownersHistory: string[];
+  raw: string;
 };
 
-function pick(text: string, patterns: RegExp[]): string {
+function pickFirst(text: string, patterns: RegExp[]) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1]) return match[1].trim().replace(/[\r\n]+/g, ' ');
+    if (match?.[1]) return match[1].trim();
   }
   return '';
 }
 
-export function extractToukiFields(text: string): ParsedResult {
-  const normalized = text
-    .replace(/\u3000/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\r/g, '\n');
+function extractOwnersHistory(text: string) {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  const location = pick(normalized, [
-    /所在\s*[:：]?\s*([^\n]+)/,
-    /所在事項\s*[:：]?\s*([^\n]+)/
-  ]);
-  const lotNumber = pick(normalized, [
-    /地番\s*[:：]?\s*([^\n]+)/,
-    /家屋番号\s*[:：]?\s*([^\n]+)/
-  ]);
-  const landArea = pick(normalized, [
-    /地積\s*[:：]?\s*([^\n]+)/,
-    /敷地面積\s*[:：]?\s*([^\n]+)/
-  ]);
-  const buildingArea = pick(normalized, [
-    /床面積\s*[:：]?\s*([^\n]+)/,
-    /建物面積\s*[:：]?\s*([^\n]+)/
-  ]);
-  const usage = pick(normalized, [
-    /種類\s*[:：]?\s*([^\n]+)/,
-    /用途\s*[:：]?\s*([^\n]+)/
-  ]);
-  const owner = pick(normalized, [
-    /所有者\s*[:：]?\s*([^\n]+)/,
-    /権利者その他の事項\s*([^\n]+)/,
-    /氏名\s*[:：]?\s*([^\n]+)/
-  ]);
-  const propertyName = [location, lotNumber].filter(Boolean).join(' ').trim() || '登記対象物件';
+  const ownerLike = lines.filter((line) => {
+    return (
+      line.includes('所有者') ||
+      line.includes('権利者') ||
+      line.includes('持分') ||
+      /住所/.test(line) ||
+      /氏名/.test(line)
+    );
+  });
 
-  return { propertyName, location, lotNumber, landArea, buildingArea, usage, owner, rawText: normalized };
+  return [...new Set(ownerLike)].slice(0, 12);
+}
+
+export function extractToukiFields(text: string): ExtractedFields {
+  const normalized = text.replace(/\r/g, '');
+
+  const location = pickFirst(normalized, [
+    /所在\s*[:：]?\s*(.+)/,
+    /所在\s+(.+)/,
+  ]);
+
+  const number = pickFirst(normalized, [
+    /地番\s*[:：]?\s*(.+)/,
+    /家屋番号\s*[:：]?\s*(.+)/,
+  ]);
+
+  const area = pickFirst(normalized, [
+    /地積\s*[:：]?\s*(.+)/,
+    /地積\s+(.+)/,
+  ]);
+
+  const buildingArea = pickFirst(normalized, [
+    /床面積\s*[:：]?\s*(.+)/,
+    /建物面積\s*[:：]?\s*(.+)/,
+  ]);
+
+  const owner = pickFirst(normalized, [
+    /所有者\s*[:：]?\s*(.+)/,
+    /権利者その他の事項\s*[:：]?\s*(.+)/,
+  ]);
+
+  const ownersHistory = extractOwnersHistory(normalized);
+
+  return {
+    location,
+    number,
+    area,
+    buildingArea,
+    owner,
+    ownersHistory,
+    raw: normalized,
+  };
 }
