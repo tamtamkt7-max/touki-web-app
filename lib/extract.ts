@@ -27,8 +27,8 @@ function extractOwnersHistory(text: string) {
       line.includes('所有者') ||
       line.includes('権利者') ||
       line.includes('持分') ||
-      /住所/.test(line) ||
-      /氏名/.test(line)
+      line.includes('住所') ||
+      line.includes('氏名')
     );
   });
 
@@ -36,7 +36,7 @@ function extractOwnersHistory(text: string) {
 }
 
 export function extractToukiFields(text: string): ExtractedFields {
-  const normalized = text.replace(/\r/g, '');
+  const normalized = text.replace(/\r/g, '\n');
 
   const location = pickFirst(normalized, [
     /所在\s*[:：]?\s*(.+)/,
