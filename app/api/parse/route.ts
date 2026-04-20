@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
     const fields = extractToukiFields(rawText);
     return Response.json({ fields });
   } catch {
-    return Response.json({ error: '解析に失敗しました。' }, { status: 500 });
+    return Response.json(
+      { error: '解析に失敗しました。' },
+      { status: 500 }
+    );
   }
 }
 
@@ -48,6 +51,9 @@ export async function PUT(req: NextRequest) {
       },
     });
   } catch {
-    return Response.json({ error: 'Excelの作成に失敗しました。' }, { status: 500 });
+    return Response.json(
+      { error: 'Excelの作成に失敗しました。' },
+      { status: 500 }
+    );
   }
 }
