@@ -53,7 +53,13 @@ export function ToolClient() {
         body: formData,
       });
 
-      const data = await res.json();
+      let data;
+try {
+  data = await res.json();
+} catch {
+  const text = await res.text();
+  throw new Error(text);
+}
 
       if (!res.ok) {
         throw new Error(data?.error || '解析に失敗しました。');
