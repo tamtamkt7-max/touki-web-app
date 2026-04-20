@@ -2,7 +2,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
-import pdf from 'pdf-parse';
 import { extractToukiFields } from '@/lib/extract';
 import { applyTemplate, templateMap, type ExtractedFields } from '@/lib/templates';
 import { buildWorkbook } from '@/lib/excel';
@@ -19,7 +18,10 @@ export async function POST(req: NextRequest) {
   if (contentType.includes('application/json')) {
     const body: { ocrText?: string; templateKey?: string } = await req.json();
     const fields = extractToukiFields(body.ocrText || '');
-    return Response.json({ fields, template: makeTemplate(fields, body.templateKey) });
+    return Response.json({
+      fields,
+      template: makeTemplate(fields, body.templateKey),
+    });
   }
 
   const formData = await req.formData();
@@ -32,10 +34,17 @@ export async function POST(req: NextRequest) {
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const parsed = await pdf(buffer);
+
+  const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js');
+  const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
+
+  const parsed = await pdfParse(buffer);
   const fields = extractToukiFields(parsed.text || '');
 
-  return Response.json({ fields, template: makeTemplate(fields, templateKey) });
+  return Response.json({
+    fields,
+    template: makeTemplate(fields, templateKey),
+  });
 }
 
 export async function PUT(req: NextRequest) {
@@ -44,8 +53,9 @@ export async function PUT(req: NextRequest) {
 
   return new Response(workbook, {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename="touki-output.xlsx"'
-    }
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="touki-output.xlsx"',
+    },
   });
 }
