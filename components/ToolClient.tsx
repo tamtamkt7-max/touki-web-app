@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import Tesseract from 'tesseract.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -17,7 +18,7 @@ type ParseResponse = {
   };
 };
 
-async function extractTextFromPdf(file: File) {
+async function extractTextLayerFromPdf(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
@@ -32,7 +33,56 @@ async function extractTextFromPdf(file: File) {
     fullText += pageText + '\n';
   }
 
-  return fullText;
+  return fullText.trim();
+}
+
+async function renderPdfPagesToImages(file: File) {
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const images: string[] = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) continue;
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({
+      canvasContext: context,
+      viewport,
+    }).promise;
+
+    images.push(canvas.toDataURL('image/png'));
+  }
+
+  return images;
+}
+
+async function extractTextWithOcr(file: File) {
+  const images = await renderPdfPagesToImages(file);
+  let fullText = '';
+
+  for (const image of images) {
+    const result = await Tesseract.recognize(image, 'jpn+eng');
+    fullText += result.data.text + '\n';
+  }
+
+  return fullText.trim();
+}
+
+async function extractTextFromPdf(file: File) {
+  const textLayer = await extractTextLayerFromPdf(file);
+
+  if (textLayer.replace(/\s/g, '').length >= 20) {
+    return textLayer;
+  }
+
+  return await extractTextWithOcr(file);
 }
 
 export function ToolClient() {
