@@ -18,7 +18,7 @@ export default function HomePage() {
         <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
         <p style={styles.lead}>
           PDFを入れるだけで、持ち主・面積・所在地を整理して確認できます。
-          そのままExcelにまとめることもできます。
+          必要なときだけ、そのままExcelで保存できます。
         </p>
 
         <div style={styles.buttonRow}>
@@ -40,12 +40,12 @@ export default function HomePage() {
         </div>
 
         <div style={styles.infoCard}>
-          <h2 style={styles.infoTitle}>安心して使えるポイント</h2>
+          <h2 style={styles.infoTitle}>使い方はシンプルです</h2>
           <ul style={styles.infoList}>
-            <li>やることはPDFを入れるだけ</li>
-            <li>結果は画面でその場で確認できる</li>
-            <li>必要なときだけExcelで保存できる</li>
-            <li>難しい専門用語なしで使える</li>
+            <li>登記簿PDFを入れる</li>
+            <li>整理された結果を確認する</li>
+            <li>必要ならExcelを保存する</li>
+            <li>難しい操作や専門知識は不要です</li>
           </ul>
         </div>
       </section>
