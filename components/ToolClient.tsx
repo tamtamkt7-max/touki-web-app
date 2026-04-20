@@ -45,16 +45,17 @@ export function ToolClient() {
   const summaryCards = useMemo(() => {
     if (!result?.fields) return [];
     return [
-      { label: '最新所有者', value: result.fields.owner || '不明' },
+      { label: '最新の持ち主', value: result.fields.owner || '不明' },
       { label: '所在地', value: result.fields.location || '未抽出' },
       { label: '地番', value: result.fields.number || '未抽出' },
-      { label: '土地面積', value: result.fields.area || '未抽出' },
-      { label: '建物面積', value: result.fields.buildingArea || '未抽出' },
+      { label: '土地の面積', value: result.fields.area || '未抽出' },
+      { label: '建物の面積', value: result.fields.buildingArea || '未抽出' },
     ];
   }, [result]);
 
   async function handleFile(file?: File | null) {
     if (!file) return;
+
     if (file.type !== 'application/pdf') {
       setError('PDFファイルを選択してください。');
       return;
@@ -75,9 +76,9 @@ export function ToolClient() {
         body: JSON.stringify({ rawText }),
       });
 
-      let data: any;
       const text = await res.text();
 
+      let data: any;
       try {
         data = JSON.parse(text);
       } catch {
@@ -112,7 +113,8 @@ export function ToolClient() {
     });
 
     if (!res.ok) {
-      setError('Excelの作成に失敗しました。');
+      const text = await res.text();
+      setError(text || 'Excelの作成に失敗しました。');
       return;
     }
 
@@ -128,13 +130,11 @@ export function ToolClient() {
   return (
     <div style={styles.wrapper}>
       <section style={styles.hero}>
-        <div>
-          <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
-          <p style={styles.lead}>
-            PDFを入れるだけで、所在地・地番・面積・最新所有者を自動で整理します。
-            読み取った内容はその場で確認でき、そのままExcelにもできます。
-          </p>
-        </div>
+        <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
+        <p style={styles.lead}>
+          PDFを入れるだけで、所在地・地番・面積・最新の持ち主を整理して表示します。
+          結果はその場で確認でき、必要ならExcelで保存できます。
+        </p>
       </section>
 
       <section
@@ -162,6 +162,7 @@ export function ToolClient() {
           onChange={(e) => handleFile(e.target.files?.[0])}
           style={{ display: 'none' }}
         />
+
         <div style={styles.dropzoneInner}>
           <div style={styles.dropIcon}>📄</div>
           <h2 style={styles.dropTitle}>
@@ -169,16 +170,16 @@ export function ToolClient() {
           </h2>
           <p style={styles.dropText}>
             {loading
-              ? '内容を確認して整理しています。少しだけお待ちください。'
+              ? '内容を整理しています。少しだけお待ちください。'
               : 'またはクリックしてPDFを選択'}
           </p>
         </div>
       </section>
 
       <div style={styles.safeRow}>
-        <div style={styles.safeItem}>PDFを入れるだけでOK</div>
-        <div style={styles.safeItem}>結果を画面ですぐ確認</div>
-        <div style={styles.safeItem}>必要ならExcel化</div>
+        <div style={styles.safeItem}>PDFを入れるだけ</div>
+        <div style={styles.safeItem}>画面ですぐ確認</div>
+        <div style={styles.safeItem}>必要ならExcel保存</div>
       </div>
 
       {error ? <div style={styles.errorBox}>{error}</div> : null}
@@ -196,7 +197,7 @@ export function ToolClient() {
 
           <div style={styles.twoColumn}>
             <div style={styles.panel}>
-              <h3 style={styles.panelTitle}>所有者の流れ</h3>
+              <h3 style={styles.panelTitle}>持ち主の流れ</h3>
               {result.fields.ownersHistory && result.fields.ownersHistory.length > 0 ? (
                 <ol style={styles.historyList}>
                   {result.fields.ownersHistory.map((item, index) => (
@@ -207,7 +208,7 @@ export function ToolClient() {
                   ))}
                 </ol>
               ) : (
-                <p style={styles.emptyText}>所有者の履歴はまだ読み取れませんでした。</p>
+                <p style={styles.emptyText}>履歴はまだ読み取れませんでした。</p>
               )}
             </div>
 
@@ -255,7 +256,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     margin: 0,
-    fontSize: 'clamp(28px, 4vw, 48px)',
+    fontSize: 'clamp(28px, 4vw, 52px)',
     lineHeight: 1.15,
     letterSpacing: '-0.02em',
     color: '#f8fafc',
@@ -265,7 +266,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 0,
     color: '#cbd5e1',
     fontSize: 16,
-    lineHeight: 1.8,
+    lineHeight: 1.9,
     maxWidth: 760,
   },
   dropzone: {
@@ -354,6 +355,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 18,
     fontWeight: 700,
     wordBreak: 'break-word',
+    color: '#0f172a',
   },
   twoColumn: {
     display: 'grid',
@@ -371,6 +373,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 0,
     marginBottom: 16,
     fontSize: 20,
+    color: '#0f172a',
   },
   historyList: {
     margin: 0,
@@ -387,6 +390,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     borderRadius: 14,
     background: '#f8fafc',
+    color: '#0f172a',
   },
   historyIndex: {
     width: 28,
@@ -412,6 +416,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 14,
     fontSize: 14,
     lineHeight: 1.6,
+    color: '#0f172a',
   },
   downloadRow: {
     marginTop: 24,
