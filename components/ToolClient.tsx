@@ -1,6 +1,9 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 type ParseResponse = {
   fields: {
@@ -12,8 +15,25 @@ type ParseResponse = {
     ownersHistory?: string[];
     raw?: string;
   };
-  template?: string;
 };
+
+async function extractTextFromPdf(file: File) {
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+  let fullText = '';
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => ('str' in item ? item.str : ''))
+      .join(' ');
+    fullText += pageText + '\n';
+  }
+
+  return fullText;
+}
 
 export function ToolClient() {
   const [loading, setLoading] = useState(false);
@@ -45,21 +65,24 @@ export function ToolClient() {
     setResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const rawText = await extractTextFromPdf(file);
 
       const res = await fetch('/api/parse', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rawText }),
       });
 
-      let data;
-try {
-  data = await res.json();
-} catch {
-  const text = await res.text();
-  throw new Error(text);
-}
+      let data: any;
+      const text = await res.text();
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || '解析に失敗しました。');
+      }
 
       if (!res.ok) {
         throw new Error(data?.error || '解析に失敗しました。');
@@ -67,7 +90,9 @@ try {
 
       setResult(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '解析に失敗しました。');
+      setError(
+        e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。'
+      );
     } finally {
       setLoading(false);
     }
@@ -83,8 +108,6 @@ try {
       },
       body: JSON.stringify({
         fields: result.fields,
-        subject: '登記情報',
-        body: result.template || '',
       }),
     });
 
@@ -106,11 +129,10 @@ try {
     <div style={styles.wrapper}>
       <section style={styles.hero}>
         <div>
-          <p style={styles.badge}>PDFを入れるだけ</p>
           <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
           <p style={styles.lead}>
-            ドラッグ＆ドロップでアップロードすると、所在地・地番・面積・最新所有者を自動抽出。
-            所有者の流れも一覧で確認できます。
+            PDFを入れるだけで、所在地・地番・面積・最新所有者を自動で整理します。
+            読み取った内容はその場で確認でき、そのままExcelにもできます。
           </p>
         </div>
       </section>
@@ -143,15 +165,21 @@ try {
         <div style={styles.dropzoneInner}>
           <div style={styles.dropIcon}>📄</div>
           <h2 style={styles.dropTitle}>
-            {loading ? '解析中です…' : 'ここに登記簿PDFをドラッグ＆ドロップ'}
+            {loading ? 'PDFを読み取り中です…' : 'ここに登記簿PDFをドラッグ＆ドロップ'}
           </h2>
           <p style={styles.dropText}>
             {loading
-              ? '自動で抽出しています。数秒お待ちください。'
+              ? '内容を確認して整理しています。少しだけお待ちください。'
               : 'またはクリックしてPDFを選択'}
           </p>
         </div>
       </section>
+
+      <div style={styles.safeRow}>
+        <div style={styles.safeItem}>PDFを入れるだけでOK</div>
+        <div style={styles.safeItem}>結果を画面ですぐ確認</div>
+        <div style={styles.safeItem}>必要ならExcel化</div>
+      </div>
 
       {error ? <div style={styles.errorBox}>{error}</div> : null}
 
@@ -179,7 +207,7 @@ try {
                   ))}
                 </ol>
               ) : (
-                <p style={styles.emptyText}>所有者の履歴は抽出できませんでした。</p>
+                <p style={styles.emptyText}>所有者の履歴はまだ読み取れませんでした。</p>
               )}
             </div>
 
@@ -199,7 +227,19 @@ try {
             </button>
           </div>
         </section>
-      ) : null}
+      ) : (
+        <section style={styles.infoArea}>
+          <div style={styles.infoCard}>
+            <h3 style={styles.infoTitle}>このツールでできること</h3>
+            <ul style={styles.infoList}>
+              <li>PDFの中の必要な情報を自動で読み取る</li>
+              <li>持ち主や面積を見やすく整理する</li>
+              <li>読み取った内容を画面ですぐ確認できる</li>
+              <li>そのままExcelにまとめられる</li>
+            </ul>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -213,46 +253,37 @@ const styles: Record<string, React.CSSProperties> = {
   hero: {
     marginBottom: 24,
   },
-  badge: {
-    display: 'inline-block',
-    margin: 0,
-    marginBottom: 12,
-    padding: '6px 10px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-    background: '#e8f0ff',
-    color: '#1d4ed8',
-  },
   title: {
     margin: 0,
     fontSize: 'clamp(28px, 4vw, 48px)',
     lineHeight: 1.15,
     letterSpacing: '-0.02em',
+    color: '#f8fafc',
   },
   lead: {
     marginTop: 16,
     marginBottom: 0,
-    color: '#475569',
+    color: '#cbd5e1',
     fontSize: 16,
     lineHeight: 1.8,
     maxWidth: 760,
   },
   dropzone: {
-    border: '2px dashed #94a3b8',
-    borderRadius: 24,
-    background: '#f8fafc',
+    border: '2px dashed rgba(255,255,255,0.18)',
+    borderRadius: 28,
+    background: 'rgba(255,255,255,0.08)',
     padding: '40px 20px',
     textAlign: 'center',
     cursor: 'pointer',
     transition: '0.2s ease',
+    backdropFilter: 'blur(8px)',
   },
   dropzoneActive: {
-    borderColor: '#2563eb',
-    background: '#eff6ff',
+    borderColor: '#60a5fa',
+    background: 'rgba(96,165,250,0.12)',
   },
   dropzoneLoading: {
-    opacity: 0.8,
+    opacity: 0.85,
   },
   dropzoneInner: {
     minHeight: 180,
@@ -268,11 +299,27 @@ const styles: Record<string, React.CSSProperties> = {
   dropTitle: {
     margin: 0,
     fontSize: 24,
+    color: '#f8fafc',
   },
   dropText: {
     margin: 0,
-    color: '#64748b',
+    color: '#cbd5e1',
     fontSize: 15,
+  },
+  safeRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 12,
+    marginTop: 16,
+  },
+  safeItem: {
+    padding: '12px 14px',
+    borderRadius: 14,
+    background: 'rgba(255,255,255,0.06)',
+    color: '#e2e8f0',
+    fontSize: 14,
+    textAlign: 'center',
+    border: '1px solid rgba(255,255,255,0.08)',
   },
   errorBox: {
     marginTop: 20,
@@ -380,5 +427,26 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     background: '#111827',
     color: '#fff',
+  },
+  infoArea: {
+    marginTop: 28,
+  },
+  infoCard: {
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 24,
+    padding: 24,
+    color: '#f8fafc',
+  },
+  infoTitle: {
+    marginTop: 0,
+    marginBottom: 16,
+    fontSize: 24,
+  },
+  infoList: {
+    margin: 0,
+    paddingLeft: 20,
+    lineHeight: 1.9,
+    color: '#e2e8f0',
   },
 };
