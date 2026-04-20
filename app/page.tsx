@@ -4,56 +4,139 @@ import Link from 'next/link';
 
 export default function HomePage() {
   return (
-    <main className="container">
-      <section className="hero grid grid-2" style={{ alignItems: 'center' }}>
-        <div>
-          <div className="kicker">Touki PDF to Excel</div>
-          <h1 className="h1">登記簿PDFを、<br />メール文面まで一気に整える。</h1>
-          <p className="lead">
-            適法に取得したPDFをアップロードし、所在・地番・面積・所有者などを抽出。
-            Excel出力とメール文面作成までまとめて行います。
-          </p>
-          <div className="actions" style={{ marginTop: 20 }}>
-            <Link className="btn" href="/tool">ツールを使う</Link>
-            <Link className="btn secondary" href="/terms">公開前の注意点を見る</Link>
-          </div>
-          <div style={{ marginTop: 18 }} className="small">
-            ※ 広告はこの説明ページ側にのみ配置し、処理画面には配置しない運用を推奨。
-          </div>
-        </div>
-        <div className="card">
-          <span className="badge">収益導線あり</span>
-          <h2>公開しやすい2層構成</h2>
-          <ul className="list">
-            <li>説明ページでSEOと広告収益</li>
-            <li>変換ツール本体は広告なし</li>
-            <li>PDF保存なし前提で個人情報リスクを圧縮</li>
-            <li>最初はテキストPDF、後からOCRも対応</li>
-          </ul>
-          <div className="ad-box" style={{ marginTop: 16 }}>AdSenseプレースホルダ</div>
+    <main style={styles.page}>
+      <header style={styles.header}>
+        <div style={styles.brand}>登記サクッと変換</div>
+        <nav style={styles.nav}>
+          <Link href="/tool" style={styles.navLink}>ツール</Link>
+          <Link href="/terms" style={styles.navLink}>利用規約</Link>
+          <Link href="/privacy" style={styles.navLink}>プライバシー</Link>
+        </nav>
+      </header>
+
+      <section style={styles.hero}>
+        <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
+        <p style={styles.lead}>
+          PDFを入れるだけで、持ち主・面積・所在地を整理して確認できます。
+          そのままExcelにまとめることもできます。
+        </p>
+
+        <div style={styles.buttonRow}>
+          <Link href="/tool" style={styles.primaryButton}>
+            PDFを入れて変換する
+          </Link>
         </div>
       </section>
 
-      <section className="grid grid-2">
-        <div className="card">
-          <h3>このアプリでできること</h3>
-          <ul className="list">
-            <li>PDFから主要項目を抽出</li>
-            <li>複数テンプレでメール文面生成</li>
-            <li>Excelを2シートで出力</li>
-            <li>OCR再抽出の補助</li>
+      <section style={styles.infoGrid}>
+        <div style={styles.infoCard}>
+          <h2 style={styles.infoTitle}>このツールでできること</h2>
+          <ul style={styles.infoList}>
+            <li>PDFの中の必要な情報を自動で読み取る</li>
+            <li>持ち主や面積を見やすく整理する</li>
+            <li>読み取った内容を画面ですぐ確認できる</li>
+            <li>そのままExcelにまとめられる</li>
           </ul>
         </div>
-        <div className="card">
-          <h3>公開時に必須の注意点</h3>
-          <ul className="list">
-            <li>取得元サービスへの自動ログイン・スクレイピングは避ける</li>
-            <li>アップロードPDFは保存しない</li>
-            <li>利用規約とプライバシーポリシーを設置する</li>
-            <li>処理結果は原本照合を前提にする</li>
+
+        <div style={styles.infoCard}>
+          <h2 style={styles.infoTitle}>安心して使えるポイント</h2>
+          <ul style={styles.infoList}>
+            <li>やることはPDFを入れるだけ</li>
+            <li>結果は画面でその場で確認できる</li>
+            <li>必要なときだけExcelで保存できる</li>
+            <li>難しい専門用語なしで使える</li>
           </ul>
         </div>
       </section>
     </main>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: '100vh',
+    background: 'linear-gradient(180deg, #08112b 0%, #0b173d 100%)',
+    color: '#f8fafc',
+    padding: '24px 20px 72px',
+  },
+  header: {
+    maxWidth: 1100,
+    margin: '0 auto 32px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 20,
+  },
+  brand: {
+    fontSize: 24,
+    fontWeight: 800,
+  },
+  nav: {
+    display: 'flex',
+    gap: 20,
+  },
+  navLink: {
+    color: '#cbd5e1',
+    textDecoration: 'none',
+    fontSize: 15,
+  },
+  hero: {
+    maxWidth: 1100,
+    margin: '0 auto',
+    padding: '40px 0 20px',
+  },
+  title: {
+    margin: 0,
+    fontSize: 'clamp(32px, 5vw, 72px)',
+    lineHeight: 1.08,
+    letterSpacing: '-0.03em',
+  },
+  lead: {
+    marginTop: 18,
+    maxWidth: 760,
+    color: '#cbd5e1',
+    fontSize: 18,
+    lineHeight: 1.8,
+  },
+  buttonRow: {
+    marginTop: 28,
+    display: 'flex',
+    gap: 14,
+  },
+  primaryButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '14px 22px',
+    borderRadius: 999,
+    background: '#8b5cf6',
+    color: '#fff',
+    textDecoration: 'none',
+    fontWeight: 700,
+  },
+  infoGrid: {
+    maxWidth: 1100,
+    margin: '36px auto 0',
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 20,
+  },
+  infoCard: {
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 24,
+    padding: 24,
+  },
+  infoTitle: {
+    marginTop: 0,
+    marginBottom: 16,
+    fontSize: 24,
+  },
+  infoList: {
+    margin: 0,
+    paddingLeft: 20,
+    lineHeight: 1.9,
+    color: '#e2e8f0',
+  },
+};
