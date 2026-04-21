@@ -377,6 +377,12 @@ textarea {
   border: 1px solid #fecaca;
 }
 
+.alert-success {
+  background: rgba(16, 185, 129, 0.14);
+  color: #d1fae5;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
