@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { extractToukiFields } from '@/lib/extract';
-import { buildWorkbook } from '@/lib/excel';
+import { buildWorkbook, buildCsv } from '@/lib/excel';
 
 function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
@@ -37,10 +37,8 @@ export async function POST(req: NextRequest) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-
       const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js');
       const pdfParse = (pdfParseModule as any).default ?? pdfParseModule;
-
       const parsed = await pdfParse(buffer);
       const rawText = String(parsed?.text || '');
 
@@ -71,6 +69,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const payload: {
+      format?: 'xlsx' | 'csv';
       fields: {
         location?: string;
         number?: string;
@@ -81,6 +80,16 @@ export async function PUT(req: NextRequest) {
         raw?: string;
       };
     } = await req.json();
+
+    if (payload.format === 'csv') {
+      const csv = buildCsv(payload.fields);
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="touki-output.csv"'
+        }
+      });
+    }
 
     const workbook = buildWorkbook(payload.fields, '', '');
 
@@ -94,7 +103,7 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     console.error(error);
     return Response.json(
-      { error: 'Excelの作成に失敗しました。' },
+      { error: '出力ファイルの作成に失敗しました。' },
       { status: 500 }
     );
   }
