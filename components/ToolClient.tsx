@@ -47,20 +47,29 @@ async function renderPdfPagesToImages(file: File) {
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2 });
+    const viewport = page.getViewport({ scale: 2.2 });
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
 
     if (!context) continue;
 
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
-    await page.render({
-      canvasContext: context,
-      viewport
-    }).promise;
+    await page.render({ canvasContext: context, viewport }).promise;
 
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const value = avg > 190 ? 255 : avg < 120 ? 0 : avg;
+      data[i] = value;
+      data[i + 1] = value;
+      data[i + 2] = value;
+    }
+
+    context.putImageData(imageData, 0, 0);
     images.push(canvas.toDataURL('image/png'));
   }
 
@@ -180,16 +189,14 @@ export function ToolClient() {
         setStatusText('');
         return;
       } catch {
-        // サーバー読取がダメでもOCRへ進む
+        // continue to OCR fallback
       }
 
       setStatusText('画像として読み取っています…');
       const ocrText = await extractTextWithOcr(file);
 
       if (!hasEnoughText(ocrText)) {
-        throw new Error(
-          'このPDFは文字をうまく読み取れませんでした。文字が入ったPDFか、より鮮明なPDFでお試しください。'
-        );
+        throw new Error('このPDFは文字をうまく読み取れませんでした。より鮮明なPDFで再度お試しください。');
       }
 
       setStatusText('読み取った内容を整理しています…');
@@ -197,9 +204,7 @@ export function ToolClient() {
       setResult(parsed);
       setStatusText('');
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。'
-      );
+      setError(e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。');
       setStatusText('');
     } finally {
       setLoading(false);
@@ -214,9 +219,7 @@ export function ToolClient() {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        fields: result.fields
-      })
+      body: JSON.stringify({ fields: result.fields })
     });
 
     if (!res.ok) {
@@ -276,9 +279,7 @@ export function ToolClient() {
             {loading ? 'PDFを読み取り中です…' : 'ここに登記簿PDFをドラッグ＆ドロップ'}
           </h2>
           <p style={styles.dropText}>
-            {loading
-              ? statusText || '内容を整理しています。少しだけお待ちください。'
-              : 'またはクリックしてPDFを選択'}
+            {loading ? statusText || '内容を整理しています。少しだけお待ちください。' : 'またはクリックしてPDFを選択'}
           </p>
         </div>
       </section>
@@ -321,18 +322,12 @@ export function ToolClient() {
 
             <div style={styles.panel}>
               <h3 style={styles.panelTitle}>抽出結果プレビュー</h3>
-              <textarea
-                readOnly
-                value={result.fields.raw || ''}
-                style={styles.textarea}
-              />
+              <textarea readOnly value={result.fields.raw || ''} style={styles.textarea} />
             </div>
           </div>
 
           <div style={styles.downloadRow}>
-            <button onClick={downloadExcel} style={styles.downloadButton}>
-              Excelをダウンロード
-            </button>
+            <button onClick={downloadExcel} style={styles.downloadButton}>Excelをダウンロード</button>
           </div>
         </section>
       ) : (
