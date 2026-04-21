@@ -2,135 +2,93 @@ export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
 
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    padding: '24px 20px 72px'
-  },
-  header: {
-    maxWidth: 1100,
-    margin: '0 auto 32px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 20
-  },
-  brand: {
-    fontSize: 24,
-    fontWeight: 800
-  },
-  nav: {
-    display: 'flex',
-    gap: 20
-  },
-  navLink: {
-    color: '#cbd5e1',
-    textDecoration: 'none',
-    fontSize: 15
-  },
-  hero: {
-    maxWidth: 1100,
-    margin: '0 auto',
-    padding: '40px 0 20px'
-  },
-  title: {
-    margin: 0,
-    fontSize: 'clamp(32px, 5vw, 72px)',
-    lineHeight: 1.08,
-    letterSpacing: '-0.03em'
-  },
-  lead: {
-    marginTop: 18,
-    maxWidth: 760,
-    color: '#cbd5e1',
-    fontSize: 18,
-    lineHeight: 1.8
-  },
-  buttonRow: {
-    marginTop: 28,
-    display: 'flex',
-    gap: 14
-  },
-  primaryButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '14px 22px',
-    borderRadius: 999,
-    background: '#8b5cf6',
-    color: '#fff',
-    textDecoration: 'none',
-    fontWeight: 700
-  },
-  infoGrid: {
-    maxWidth: 1100,
-    margin: '36px auto 0',
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 20
-  },
-  infoCard: {
-    background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 24,
-    padding: 24
-  },
-  infoTitle: {
-    marginTop: 0,
-    marginBottom: 16,
-    fontSize: 24
-  },
-  infoList: {
-    margin: 0,
-    paddingLeft: 20,
-    lineHeight: 1.9,
-    color: '#e2e8f0'
-  }
-};
-
 export default function HomePage() {
   return (
-    <main style={styles.page}>
-      <header style={styles.header}>
-        <div style={styles.brand}>登記サクッと変換</div>
-        <nav style={styles.nav}>
-          <Link href="/tool" style={styles.navLink}>ツール</Link>
-          <Link href="/terms" style={styles.navLink}>利用規約</Link>
-          <Link href="/privacy" style={styles.navLink}>プライバシー</Link>
+    <main className="home-page">
+      <header className="site-header shell">
+        <div className="brand">登記サクッと変換</div>
+
+        <nav className="site-nav">
+          <Link href="/tool">ツール</Link>
+          <Link href="/terms">利用規約</Link>
+          <Link href="/privacy">プライバシー</Link>
         </nav>
       </header>
 
-      <section style={styles.hero}>
-        <h1 style={styles.title}>登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
-        <p style={styles.lead}>
-          PDFを入れるだけで、持ち主・面積・所在地を整理して確認できます。
-          必要なときだけ、そのままExcelで保存できます。
-        </p>
-        <div style={styles.buttonRow}>
-          <Link href="/tool" style={styles.primaryButton}>PDFを入れて変換する</Link>
+      <section className="hero shell">
+        <div className="hero-copy">
+          <p className="eyebrow">PDFを入れるだけ</p>
+          <h1 className="hero-title">
+            登記簿PDFを、
+            <br />
+            見やすく整理して
+            <br />
+            すぐ使える形へ。
+          </h1>
+          <p className="hero-lead">
+            所在地・地番・面積・最新の持ち主を自動で整理。
+            <br />
+            画面で確認して、必要なときだけExcelで保存できます。
+          </p>
+
+          <div className="hero-actions">
+            <Link href="/tool" className="button button-primary">
+              PDFを入れて変換する
+            </Link>
+          </div>
+
+          <div className="trust-pills">
+            <span>迷わず使える</span>
+            <span>画面で結果確認</span>
+            <span>必要ならExcel保存</span>
+          </div>
+        </div>
+
+        <div className="hero-panel">
+          <div className="panel panel-dark">
+            <div className="panel-badge">かんたん3ステップ</div>
+            <ol className="step-list">
+              <li>
+                <strong>PDFを入れる</strong>
+                <span>ドラッグ＆ドロップかクリックで選択</span>
+              </li>
+              <li>
+                <strong>結果を確認する</strong>
+                <span>持ち主、所在地、面積をカードで一覧表示</span>
+              </li>
+              <li>
+                <strong>必要なら保存する</strong>
+                <span>そのままExcelでダウンロード</span>
+              </li>
+            </ol>
+          </div>
+
+          <div className="home-ad-slot">
+            {/* AdSenseを入れるならここ。処理画面(/tool)には入れない */}
+          </div>
         </div>
       </section>
 
-      <section style={styles.infoGrid}>
-        <div style={styles.infoCard}>
-          <h2 style={styles.infoTitle}>このツールでできること</h2>
-          <ul style={styles.infoList}>
+      <section className="feature-grid shell">
+        <article className="panel panel-card">
+          <h2>このツールでできること</h2>
+          <ul className="bullet-list">
             <li>PDFの中の必要な情報を自動で読み取る</li>
             <li>持ち主や面積を見やすく整理する</li>
             <li>読み取った内容を画面ですぐ確認できる</li>
             <li>そのままExcelにまとめられる</li>
           </ul>
-        </div>
+        </article>
 
-        <div style={styles.infoCard}>
-          <h2 style={styles.infoTitle}>使い方はシンプルです</h2>
-          <ul style={styles.infoList}>
-            <li>登記簿PDFを入れる</li>
-            <li>整理された結果を確認する</li>
-            <li>必要ならExcelを保存する</li>
-            <li>難しい操作や専門知識は不要です</li>
+        <article className="panel panel-card">
+          <h2>安心して使えるポイント</h2>
+          <ul className="bullet-list">
+            <li>やることはPDFを入れるだけ</li>
+            <li>結果は画面でその場で確認できる</li>
+            <li>必要なときだけExcelで保存できる</li>
+            <li>難しい専門用語なしで使える</li>
           </ul>
-        </div>
+        </article>
       </section>
     </main>
   );
