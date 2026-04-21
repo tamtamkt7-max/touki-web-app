@@ -24,18 +24,38 @@ function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
 }
 
+function preprocessCanvas(source: HTMLCanvasElement) {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return source;
+
+  ctx.drawImage(source, 0, 0);
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = img.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+    const boosted = avg > 180 ? 255 : avg < 120 ? 0 : avg;
+    data[i] = boosted;
+    data[i + 1] = boosted;
+    data[i + 2] = boosted;
+  }
+
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 async function extractTextLayerFromPdf(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-
   let fullText = '';
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item: any) => ('str' in item ? item.str : ''))
-      .join(' ');
+    const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ');
     fullText += pageText + '\n';
   }
 
@@ -49,32 +69,35 @@ async function renderPdfPagesToImages(file: File) {
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2 });
+    const viewport = page.getViewport({ scale: 2.2 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-
     if (!context) continue;
 
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
-    await page.render({
-      canvasContext: context,
-      viewport
-    }).promise;
-
-    images.push(canvas.toDataURL('image/png'));
+    await page.render({ canvasContext: context, viewport }).promise;
+    const processed = preprocessCanvas(canvas);
+    images.push(processed.toDataURL('image/png'));
   }
 
   return images;
 }
 
-async function extractTextWithOcr(file: File) {
+async function extractTextWithOcr(file: File, onStatus?: (v: string) => void) {
   const images = await renderPdfPagesToImages(file);
   let fullText = '';
 
-  for (const image of images) {
-    const result = await Tesseract.recognize(image, 'jpn+eng');
+  for (let i = 0; i < images.length; i++) {
+    onStatus?.(`画像として読み取っています… ${i + 1}/${images.length}ページ`);
+    const result = await Tesseract.recognize(images[i], 'jpn+eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          onStatus?.(`画像として読み取っています… ${i + 1}/${images.length}ページ`);
+        }
+      }
+    });
     fullText += result.data.text + '\n';
   }
 
@@ -84,25 +107,20 @@ async function extractTextWithOcr(file: File) {
 async function parseWithRawText(rawText: string) {
   const res = await fetch('/api/parse', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rawText })
   });
 
   const text = await res.text();
-
   let data: any;
+
   try {
     data = JSON.parse(text);
   } catch {
     throw new Error(text || '解析に失敗しました。');
   }
 
-  if (!res.ok) {
-    throw new Error(data?.error || '解析に失敗しました。');
-  }
-
+  if (!res.ok) throw new Error(data?.error || '解析に失敗しました。');
   return data as ParseResponse;
 }
 
@@ -110,24 +128,17 @@ async function parseWithServerPdf(file: File) {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch('/api/parse', {
-    method: 'POST',
-    body: formData
-  });
-
+  const res = await fetch('/api/parse', { method: 'POST', body: formData });
   const text = await res.text();
-
   let data: any;
+
   try {
     data = JSON.parse(text);
   } catch {
     throw new Error(text || '解析に失敗しました。');
   }
 
-  if (!res.ok) {
-    throw new Error(data?.error || '解析に失敗しました。');
-  }
-
+  if (!res.ok) throw new Error(data?.error || '解析に失敗しました。');
   return data as ParseResponse;
 }
 
@@ -141,7 +152,6 @@ export function ToolClient() {
 
   const summaryCards = useMemo(() => {
     if (!result?.fields) return [];
-
     return [
       { label: '最新の持ち主', value: result.fields.owner || '不明' },
       { label: '所在地', value: result.fields.location || '未抽出' },
@@ -151,9 +161,19 @@ export function ToolClient() {
     ];
   }, [result]);
 
+  const detailRows = useMemo(() => {
+    if (!result?.fields) return [];
+    return [
+      ['最新の持ち主', result.fields.owner || '不明'],
+      ['所在地', result.fields.location || '未抽出'],
+      ['地番', result.fields.number || '未抽出'],
+      ['土地の面積', result.fields.area || '未抽出'],
+      ['建物の面積', result.fields.buildingArea || '未抽出']
+    ];
+  }, [result]);
+
   async function handleFile(file?: File | null) {
     if (!file) return;
-
     if (file.type !== 'application/pdf') {
       setError('PDFファイルを選択してください。');
       return;
@@ -183,16 +203,12 @@ export function ToolClient() {
         setStatusText('');
         return;
       } catch {
-        // 失敗したらOCRへ進む
       }
 
-      setStatusText('画像として読み取っています…');
-      const ocrText = await extractTextWithOcr(file);
+      const ocrText = await extractTextWithOcr(file, setStatusText);
 
       if (!hasEnoughText(ocrText)) {
-        throw new Error(
-          'このPDFは文字をうまく読み取れませんでした。文字が入ったPDFか、より鮮明なPDFでお試しください。'
-        );
+        throw new Error('このPDFは文字をうまく読み取れませんでした。より鮮明なPDFか、文字がはっきり写ったPDFでお試しください。');
       }
 
       setStatusText('読み取った内容を整理しています…');
@@ -200,31 +216,25 @@ export function ToolClient() {
       setResult(parsed);
       setStatusText('');
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。'
-      );
+      setError(e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。');
       setStatusText('');
     } finally {
       setLoading(false);
     }
   }
 
-  async function downloadExcel() {
+  async function downloadFile(format: 'xlsx' | 'csv') {
     if (!result) return;
 
     const res = await fetch('/api/parse', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        fields: result.fields
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, fields: result.fields })
     });
 
     if (!res.ok) {
       const text = await res.text();
-      setError(text || 'Excelの作成に失敗しました。');
+      setError(text || '出力ファイルの作成に失敗しました。');
       return;
     }
 
@@ -232,7 +242,7 @@ export function ToolClient() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'touki-output.xlsx';
+    a.download = format === 'csv' ? 'touki-output.csv' : 'touki-output.xlsx';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -252,7 +262,7 @@ export function ToolClient() {
           <h1 className="tool-title">登記簿PDFを、見やすく整理してすぐ使える形へ。</h1>
           <p className="tool-lead">
             PDFを入れるだけで、所在地・地番・面積・最新の持ち主を整理して表示します。
-            結果はその場で確認でき、必要ならExcelで保存できます。
+            結果はその場で確認でき、必要ならCSVやExcelで保存できます。
           </p>
         </div>
       </div>
@@ -285,9 +295,7 @@ export function ToolClient() {
             {loading ? 'PDFを読み取り中です…' : 'ここに登記簿PDFをドラッグ＆ドロップ'}
           </h2>
           <p className="dropzone-text">
-            {loading
-              ? statusText || '内容を整理しています。少しだけお待ちください。'
-              : 'またはクリックしてPDFを選択'}
+            {loading ? statusText || '内容を整理しています。少しだけお待ちください。' : 'またはクリックしてPDFを選択'}
           </p>
         </div>
       </section>
@@ -295,7 +303,7 @@ export function ToolClient() {
       <div className="tool-pills">
         <span>PDFを入れるだけ</span>
         <span>画面ですぐ確認</span>
-        <span>必要ならExcel保存</span>
+        <span>必要ならCSV / Excel保存</span>
       </div>
 
       {error ? <div className="alert alert-error">{error}</div> : null}
@@ -314,6 +322,19 @@ export function ToolClient() {
           <div className="result-grid">
             <article className="result-card">
               <div className="result-card-header">
+                <h3>整理した結果</h3>
+              </div>
+
+              <div className="detail-table">
+                {detailRows.map(([label, value]) => (
+                  <div className="detail-row" key={String(label)}>
+                    <div className="detail-label">{label}</div>
+                    <div className="detail-value">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="result-card-header" style={{ marginTop: 20 }}>
                 <h3>持ち主の流れ</h3>
               </div>
 
@@ -348,7 +369,10 @@ export function ToolClient() {
             <button className="button button-secondary" onClick={resetAll}>
               別のPDFで試す
             </button>
-            <button className="button button-primary" onClick={downloadExcel}>
+            <button className="button button-secondary" onClick={() => downloadFile('csv')}>
+              CSVをダウンロード
+            </button>
+            <button className="button button-primary" onClick={() => downloadFile('xlsx')}>
               Excelをダウンロード
             </button>
           </div>
@@ -360,7 +384,7 @@ export function ToolClient() {
             <li>PDFの中の必要な情報を自動で読み取る</li>
             <li>持ち主や面積を見やすく整理する</li>
             <li>読み取った内容を画面ですぐ確認できる</li>
-            <li>そのままExcelにまとめられる</li>
+            <li>CSVやExcelにまとめられる</li>
           </ul>
         </section>
       )}
