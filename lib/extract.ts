@@ -23,6 +23,7 @@ function normalizeText(text: string) {
     .replace(/\n{2,}/g, '\n')
     .replace(/[|｜]/g, ' ')
     .replace(/[‐-‒–—―]/g, '-')
+    .replace(/㎡/g, '㎡')
     .trim();
 }
 
@@ -30,6 +31,7 @@ function cleanValue(value: string) {
   return value
     .replace(/^[\s:：]+/, '')
     .replace(/\s{2,}/g, ' ')
+    .replace(/[()（）【】]/g, ' ')
     .trim();
 }
 
@@ -89,7 +91,7 @@ function extractArea(text: string) {
   return pickFirst(text, [
     /地積\s*[:：]?\s*([0-9.,]+\s*㎡?)/,
     /地\s*積\s*([0-9.,]+\s*㎡?)/,
-    /地積\s*([^\n]+)/,
+    /地積\s*[:：]?\s*([^\n]+)/,
     /地\s*積\s*([^\n]+)/
   ]);
 }
@@ -98,8 +100,8 @@ function extractBuildingArea(text: string) {
   return pickFirst(text, [
     /床面積\s*[:：]?\s*([0-9.,]+\s*㎡?)/,
     /建物面積\s*[:：]?\s*([0-9.,]+\s*㎡?)/,
-    /床面積\s*([^\n]+)/,
-    /建物面積\s*([^\n]+)/
+    /床面積\s*[:：]?\s*([^\n]+)/,
+    /建物面積\s*[:：]?\s*([^\n]+)/
   ]);
 }
 
