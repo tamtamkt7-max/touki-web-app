@@ -1,23 +1,31 @@
 import * as XLSX from 'xlsx';
-import type { ExtractedFields } from './templates';
+import type { ExtractedFields } from './extract';
 
-export function buildWorkbook(fields: ExtractedFields, subject: string, body: string): Buffer {
+export function buildWorkbook(fields: Partial<ExtractedFields>) {
   const wb = XLSX.utils.book_new();
-  const fieldRows = [
+
+  const summary = [
     ['項目', '値'],
-    ['物件名', fields.propertyName],
-    ['所在', fields.location],
-    ['地番', fields.lotNumber],
-    ['敷地面積', fields.landArea],
-    ['建物面積', fields.buildingArea],
-    ['用途', fields.usage],
-    ['所有者', fields.owner]
+    ['最新の持ち主', fields.owner || ''],
+    ['所在地', fields.location || ''],
+    ['地番', fields.number || ''],
+    ['土地の面積', fields.area || ''],
+    ['建物の面積', fields.buildingArea || '']
   ];
-  const mailRows = [
-    ['件名', subject],
-    ['本文', body]
+
+  const history = [
+    ['持ち主の流れ'],
+    ...((fields.ownersHistory || []).map((item) => [item]))
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fieldRows), '抽出結果');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(mailRows), 'メール文面');
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+  const raw = [
+    ['抽出結果プレビュー'],
+    [fields.raw || '']
+  ];
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '要約');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(history), '履歴');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(raw), 'プレビュー');
+
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
