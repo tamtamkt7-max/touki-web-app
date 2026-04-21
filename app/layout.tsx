@@ -1,21 +1,20 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { SiteHeader } from '@/components/SiteHeader';
-import { SiteFooter } from '@/components/SiteFooter';
 
 export const metadata: Metadata = {
-  title: '登記ひろい機',
-  description: '登記簿PDFから必要項目を抽出して、Excelとメール文面にまとめるWebアプリ'
+  title: '登記サクッと変換',
+  description:
+    '登記簿PDFを入れるだけで、所在地・地番・面積・持ち主を見やすく整理。画面で確認して、そのままExcelで保存できます。'
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="ja">
-      <body>
-        <SiteHeader />
-        {children}
-        <SiteFooter />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
