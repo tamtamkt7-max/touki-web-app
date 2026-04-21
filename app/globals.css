@@ -7,55 +7,93 @@ body {
   color: #f8fafc;
 }
 
-/* ===== UI強化ここから ===== */
+/* ===== レイアウト ===== */
 
 .tool {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 40px 20px;
+  padding: 60px 20px;
 }
 
 .tool-title {
-  font-size: 42px;
+  font-size: 44px;
   font-weight: 800;
   margin-bottom: 12px;
+  letter-spacing: -0.02em;
 }
 
 .tool-lead {
   color: #cbd5e1;
   margin-bottom: 30px;
+  font-size: 15px;
 }
 
+/* ===== ドロップエリア ===== */
+
 .dropzone {
-  border: 2px dashed rgba(255,255,255,0.3);
-  border-radius: 24px;
-  padding: 40px;
+  border: 2px dashed rgba(255,255,255,0.25);
+  border-radius: 28px;
+  padding: 60px 20px;
   text-align: center;
   cursor: pointer;
-  background: rgba(255,255,255,0.05);
-  transition: 0.2s;
+  background: rgba(255,255,255,0.04);
+  transition: all 0.2s ease;
 }
 
 .dropzone:hover {
   background: rgba(255,255,255,0.08);
+  transform: translateY(-2px);
 }
 
 .dropzone.is-dragging {
   border-color: #60a5fa;
+  background: rgba(96,165,250,0.1);
 }
+
+.dropzone-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 10px;
+}
+
+.dropzone-sub {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* ===== ステップ表示 ===== */
+
+.flow-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.flow-pill {
+  flex: 1;
+  text-align: center;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  padding: 10px;
+  font-size: 13px;
+}
+
+/* ===== サマリー ===== */
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
-  margin-top: 20px;
+  gap: 14px;
+  margin-top: 26px;
 }
 
 .summary-card {
   background: #ffffff;
   color: #111827;
-  border-radius: 16px;
-  padding: 14px;
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.2);
 }
 
 .summary-label {
@@ -64,38 +102,117 @@ body {
 }
 
 .summary-value {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
+  margin-top: 4px;
 }
+
+/* ===== 結果エリア ===== */
 
 .result-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 20px;
+  gap: 20px;
+  margin-top: 26px;
 }
 
 .result-card {
   background: #ffffff;
   color: #111827;
-  border-radius: 20px;
-  padding: 16px;
+  border-radius: 22px;
+  padding: 18px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.25);
 }
+
+.result-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+/* ===== プレビュー ===== */
 
 .preview-textarea {
   width: 100%;
-  height: 300px;
+  height: 320px;
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  font-family: monospace;
+  font-size: 12px;
 }
+
+/* ===== タイムライン ===== */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.timeline-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: white;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-text {
+  font-size: 14px;
+}
+
+/* ===== ボタン ===== */
+
+.btn-primary {
+  margin-top: 20px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+/* ===== エラー ===== */
 
 .alert-error {
   background: #fee2e2;
   color: #b91c1c;
-  padding: 12px;
-  border-radius: 12px;
-  margin-top: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  margin-top: 18px;
+  font-weight: 600;
 }
 
-@media (max-width: 768px) {
-  .summary-grid { grid-template-columns: repeat(2, 1fr); }
-  .result-grid { grid-template-columns: 1fr; }
+/* ===== モバイル ===== */
+
+@media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-title {
+    font-size: 32px;
+  }
 }
