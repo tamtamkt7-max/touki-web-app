@@ -23,7 +23,12 @@ function normalizeText(text: string) {
     .replace(/\n{2,}/g, '\n')
     .replace(/[|｜]/g, ' ')
     .replace(/[‐-‒–—―]/g, '-')
-    .replace(/㎡/g, '㎡')
+    .replace(/郡 山/g, '郡山市')
+    .replace(/所 邊|所辺|所邊/g, '所在')
+    .replace(/地 番|地香|地盤/g, '地番')
+    .replace(/地 積|地绩|地責/g, '地積')
+    .replace(/床 面 積|床面 積/g, '床面積')
+    .replace(/所 有 者|所有 者/g, '所有者')
     .trim();
 }
 
@@ -74,17 +79,35 @@ function extractLatestOwner(text: string, ownersHistory: string[]) {
     return ownerMatches[ownerMatches.length - 1];
   }
 
-  const nameLike = ownersHistory.filter((line) => {
-    return (
-      !line.includes('受付年月日') &&
-      !line.includes('登記の目的') &&
-      !line.includes('所有権移転') &&
-      !line.includes('売買') &&
-      !line.includes('相続')
-    );
+  const shareLike = ownersHistory.filter((line) => {
+    return line.includes('持分') || /[0-9]+分の[0-9]+/.test(line);
   });
 
-  return nameLike.length > 0 ? nameLike[nameLike.length - 1] : '';
+  if (shareLike.length > 0) {
+    return shareLike[shareLike.length - 1];
+  }
+
+  return '';
+}
+
+function extractLocation(text: string) {
+  return pickFirst(text, [
+    /所在\s*[:：]?\s*([^\n]+)/,
+    /所\s*在\s*([^\n]+)/,
+    /所在欄\s*[:：]?\s*([^\n]+)/,
+    /所在\s+([^\n]+)/,
+    /郡山市[^\n]+/
+  ]);
+}
+
+function extractNumber(text: string) {
+  return pickFirst(text, [
+    /地番\s*[:：]?\s*([^\n]+)/,
+    /家屋番号\s*[:：]?\s*([^\n]+)/,
+    /地\s*番\s*([^\n]+)/,
+    /家屋番号\s*([^\n]+)/,
+    /([0-9]+番[0-9-]*)/
+  ]);
 }
 
 function extractArea(text: string) {
@@ -92,7 +115,8 @@ function extractArea(text: string) {
     /地積\s*[:：]?\s*([0-9.,]+\s*㎡?)/,
     /地\s*積\s*([0-9.,]+\s*㎡?)/,
     /地積\s*[:：]?\s*([^\n]+)/,
-    /地\s*積\s*([^\n]+)/
+    /地\s*積\s*([^\n]+)/,
+    /([0-9]{2,4}\s*㎡)/
   ]);
 }
 
@@ -102,23 +126,6 @@ function extractBuildingArea(text: string) {
     /建物面積\s*[:：]?\s*([0-9.,]+\s*㎡?)/,
     /床面積\s*[:：]?\s*([^\n]+)/,
     /建物面積\s*[:：]?\s*([^\n]+)/
-  ]);
-}
-
-function extractLocation(text: string) {
-  return pickFirst(text, [
-    /所在\s*[:：]?\s*([^\n]+)/,
-    /所\s*在\s*([^\n]+)/,
-    /所在欄\s*[:：]?\s*([^\n]+)/
-  ]);
-}
-
-function extractNumber(text: string) {
-  return pickFirst(text, [
-    /地番\s*[:：]?\s*([^\n]+)/,
-    /家屋番号\s*[:：]?\s*([^\n]+)/,
-    /地\s*番\s*([^\n]+)/,
-    /家屋番号\s*([^\n]+)/
   ]);
 }
 
