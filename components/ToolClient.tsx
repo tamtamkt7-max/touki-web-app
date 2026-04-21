@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import Tesseract from 'tesseract.js';
 
@@ -55,7 +55,9 @@ async function extractTextLayerFromPdf(file: File) {
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ');
+    const pageText = textContent.items
+      .map((item: any) => ('str' in item ? item.str : ''))
+      .join(' ');
     fullText += pageText + '\n';
   }
 
@@ -148,7 +150,9 @@ export function ToolClient() {
   const [result, setResult] = useState<ParseResponse | null>(null);
   const [error, setError] = useState('');
   const [statusText, setStatusText] = useState('');
+  const [doneMessage, setDoneMessage] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const resultRef = useRef<HTMLElement | null>(null);
 
   const summaryCards = useMemo(() => {
     if (!result?.fields) return [];
@@ -172,8 +176,15 @@ export function ToolClient() {
     ];
   }, [result]);
 
+  useEffect(() => {
+    if (result && resultRef.current) {
+      resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [result]);
+
   async function handleFile(file?: File | null) {
     if (!file) return;
+
     if (file.type !== 'application/pdf') {
       setError('PDFファイルを選択してください。');
       return;
@@ -183,6 +194,7 @@ export function ToolClient() {
     setDragging(false);
     setError('');
     setResult(null);
+    setDoneMessage('');
     setStatusText('PDFの文字を確認しています…');
 
     try {
@@ -192,6 +204,7 @@ export function ToolClient() {
         setStatusText('文字を整理しています…');
         const parsed = await parseWithRawText(textLayer);
         setResult(parsed);
+        setDoneMessage('抽出が完了しました。内容を確認してください。');
         setStatusText('');
         return;
       }
@@ -200,24 +213,30 @@ export function ToolClient() {
       try {
         const serverParsed = await parseWithServerPdf(file);
         setResult(serverParsed);
+        setDoneMessage('抽出が完了しました。内容を確認してください。');
         setStatusText('');
         return;
       } catch {
+        // OCRへ進む
       }
 
       const ocrText = await extractTextWithOcr(file, setStatusText);
 
       if (!hasEnoughText(ocrText)) {
-        throw new Error('このPDFは文字をうまく読み取れませんでした。より鮮明なPDFか、文字がはっきり写ったPDFでお試しください。');
+        throw new Error(
+          'このPDFは文字をうまく読み取れませんでした。より鮮明なPDFか、文字がはっきり写ったPDFでお試しください。'
+        );
       }
 
       setStatusText('読み取った内容を整理しています…');
       const parsed = await parseWithRawText(ocrText);
       setResult(parsed);
+      setDoneMessage('抽出が完了しました。内容を確認してください。');
       setStatusText('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。');
       setStatusText('');
+      setDoneMessage('');
     } finally {
       setLoading(false);
     }
@@ -251,6 +270,7 @@ export function ToolClient() {
     setResult(null);
     setError('');
     setStatusText('');
+    setDoneMessage('');
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -295,7 +315,9 @@ export function ToolClient() {
             {loading ? 'PDFを読み取り中です…' : 'ここに登記簿PDFをドラッグ＆ドロップ'}
           </h2>
           <p className="dropzone-text">
-            {loading ? statusText || '内容を整理しています。少しだけお待ちください。' : 'またはクリックしてPDFを選択'}
+            {loading
+              ? statusText || '内容を整理しています。少しだけお待ちください。'
+              : 'またはクリックしてPDFを選択'}
           </p>
         </div>
       </section>
@@ -307,9 +329,10 @@ export function ToolClient() {
       </div>
 
       {error ? <div className="alert alert-error">{error}</div> : null}
+      {doneMessage ? <div className="alert alert-success">{doneMessage}</div> : null}
 
       {result ? (
-        <section className="result-section">
+        <section className="result-section" ref={resultRef}>
           <div className="summary-grid">
             {summaryCards.map((card) => (
               <article key={card.label} className="summary-card">
@@ -369,10 +392,16 @@ export function ToolClient() {
             <button className="button button-secondary" onClick={resetAll}>
               別のPDFで試す
             </button>
-            <button className="button button-secondary" onClick={() => downloadFile('csv')}>
+            <button
+              className="button button-secondary"
+              onClick={() => downloadFile('csv')}
+            >
               CSVをダウンロード
             </button>
-            <button className="button button-primary" onClick={() => downloadFile('xlsx')}>
+            <button
+              className="button button-primary"
+              onClick={() => downloadFile('xlsx')}
+            >
               Excelをダウンロード
             </button>
           </div>
