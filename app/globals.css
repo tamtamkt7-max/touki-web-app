@@ -45,6 +45,8 @@ textarea {
   margin: 0 auto;
 }
 
+/* ===== 共通UI ===== */
+
 .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -72,7 +74,8 @@ textarea {
   transition:
     transform 0.18s ease,
     opacity 0.18s ease,
-    box-shadow 0.18s ease;
+    box-shadow 0.18s ease,
+    background 0.18s ease;
 }
 
 .button:hover {
@@ -116,6 +119,8 @@ textarea {
   color: #94a3b8;
 }
 
+/* ===== ヘッダー ===== */
+
 .site-header {
   display: flex;
   align-items: center;
@@ -145,6 +150,8 @@ textarea {
   color: #fff;
 }
 
+/* ===== トップページ ===== */
+
 .home-page {
   min-height: 100vh;
   padding-bottom: 80px;
@@ -156,6 +163,10 @@ textarea {
   gap: 24px;
   align-items: start;
   padding: 34px 0 20px;
+}
+
+.hero-copy {
+  min-width: 0;
 }
 
 .hero-title {
@@ -250,9 +261,44 @@ textarea {
   line-height: 1.7;
 }
 
-.home-ad-slot {
-  min-height: 140px;
+/* ===== 広告枠 ===== */
+
+.ad-panel {
+  padding: 20px;
 }
+
+.ad-label {
+  display: inline-flex;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.14);
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.ad-box {
+  min-height: 180px;
+  border-radius: 20px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  place-items: center;
+  color: #cbd5e1;
+  font-size: 15px;
+  text-align: center;
+  padding: 20px;
+}
+
+.ad-note {
+  margin: 12px 0 0;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* ===== 説明カード ===== */
 
 .feature-grid {
   display: grid;
@@ -264,6 +310,8 @@ textarea {
 .panel-card {
   padding: 26px;
 }
+
+/* ===== ツールページ ===== */
 
 .tool-page {
   min-height: 100vh;
@@ -294,6 +342,8 @@ textarea {
   line-height: 1.85;
 }
 
+/* ===== ドロップゾーン ===== */
+
 .dropzone {
   border: 2px dashed rgba(255, 255, 255, 0.26);
   border-radius: 32px;
@@ -304,11 +354,13 @@ textarea {
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
-    transform 0.2s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .dropzone:hover {
   background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.2);
 }
 
 .dropzone.is-dragging {
@@ -344,6 +396,8 @@ textarea {
   font-size: 16px;
 }
 
+/* ===== ツールページ下の3つの案内 ===== */
+
 .tool-pills {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -364,6 +418,8 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ===== アラート ===== */
+
 .alert {
   padding: 16px 18px;
   border-radius: 18px;
@@ -382,6 +438,8 @@ textarea {
   color: #d1fae5;
   border: 1px solid rgba(16, 185, 129, 0.28);
 }
+
+/* ===== サマリーカード ===== */
 
 .summary-grid {
   display: grid;
@@ -406,6 +464,8 @@ textarea {
   line-height: 1.45;
   word-break: break-word;
 }
+
+/* ===== 結果エリア ===== */
 
 .result-section {
   display: grid;
@@ -435,6 +495,8 @@ textarea {
   font-size: 22px;
 }
 
+/* ===== 整理済みテーブル ===== */
+
 .detail-table {
   display: grid;
   gap: 10px;
@@ -459,6 +521,8 @@ textarea {
   font-weight: 700;
   word-break: break-word;
 }
+
+/* ===== タイムライン ===== */
 
 .timeline {
   list-style: none;
@@ -495,6 +559,8 @@ textarea {
   word-break: break-word;
 }
 
+/* ===== プレビュー ===== */
+
 .preview-textarea {
   width: 100%;
   min-height: 360px;
@@ -507,6 +573,8 @@ textarea {
   line-height: 1.7;
 }
 
+/* ===== ボタン群 ===== */
+
 .result-actions {
   display: flex;
   justify-content: flex-end;
@@ -518,6 +586,49 @@ textarea {
   margin: 0 0 14px;
   font-size: 24px;
 }
+
+/* ===== 規約・プライバシー用 ===== */
+
+.doc-page {
+  min-height: 100vh;
+  padding: 36px 20px 80px;
+}
+
+.doc-inner {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.doc-title {
+  margin: 0 0 24px;
+  font-size: clamp(34px, 6vw, 60px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.doc-section {
+  margin-top: 28px;
+}
+
+.doc-section h2 {
+  margin: 0 0 12px;
+  font-size: 30px;
+  line-height: 1.3;
+}
+
+.doc-section p,
+.doc-section li {
+  color: #dbe4f0;
+  font-size: 17px;
+  line-height: 1.95;
+}
+
+.doc-section ul {
+  margin: 0;
+  padding-left: 24px;
+}
+
+/* ===== レスポンシブ ===== */
 
 @media (max-width: 980px) {
   .hero,
@@ -569,5 +680,18 @@ textarea {
   .detail-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .doc-title {
+    font-size: clamp(30px, 10vw, 48px);
+  }
+
+  .doc-section h2 {
+    font-size: 24px;
+  }
+
+  .doc-section p,
+  .doc-section li {
+    font-size: 15px;
   }
 }
