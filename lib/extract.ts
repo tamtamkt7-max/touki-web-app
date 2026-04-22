@@ -16,26 +16,6 @@ function pickFirst(text: string, patterns: RegExp[]) {
   return '';
 }
 
-function normalizeText(text: string) {
-  return text
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{2,}/g, '\n')
-    .replace(/[|｜]/g, ' ')
-    .replace(/[‐-‒–—―]/g, '-')
-    .replace(/郡 山/g, '郡山市')
-    .replace(/郡 山 市/g, '郡山市')
-    .replace(/所 邊|所辺|所邊|所 在/g, '所在')
-    .replace(/地 番|地香|地盤|地 番/g, '地番')
-    .replace(/地 積|地绩|地責/g, '地積')
-    .replace(/床 面 積|床面 積/g, '床面積')
-    .replace(/所 有 者|所有 者/g, '所有者')
-    .replace(/持 分/g, '持分')
-    .replace(/令 和/g, '令和')
-    .replace(/[①②③④⑤⑥⑦⑧⑨]/g, ' ')
-    .trim();
-}
-
 function cleanValue(value: string) {
   return value
     .replace(/^[\s:：]+/, '')
@@ -46,6 +26,26 @@ function cleanValue(value: string) {
 
 function unique(values: string[]) {
   return [...new Set(values.map((v) => cleanValue(v)).filter(Boolean))];
+}
+
+function normalizeText(text: string) {
+  return text
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{2,}/g, '\n')
+    .replace(/[|｜]/g, ' ')
+    .replace(/[‐-‒–—―]/g, '-')
+    .replace(/[①②③④⑤⑥⑦⑧⑨]/g, ' ')
+    .replace(/郡 山/g, '郡山市')
+    .replace(/郡 山 市/g, '郡山市')
+    .replace(/所 邊|所辺|所邊|所 在/g, '所在')
+    .replace(/地 番|地香|地盤/g, '地番')
+    .replace(/地 積|地绩|地責/g, '地積')
+    .replace(/床 面 積|床面 積/g, '床面積')
+    .replace(/所 有 者|所有 者/g, '所有者')
+    .replace(/持 分/g, '持分')
+    .replace(/令 和/g, '令和')
+    .trim();
 }
 
 function extractOwnersHistory(text: string) {
