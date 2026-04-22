@@ -29,6 +29,7 @@ function normalizeText(text: string) {
     .replace(/地 積|地绩|地責/g, '地積')
     .replace(/床 面 積|床面 積/g, '床面積')
     .replace(/所 有 者|所有 者/g, '所有者')
+    .replace(/令和/g, '令和')
     .trim();
 }
 
