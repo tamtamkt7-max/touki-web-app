@@ -1,10 +1,13 @@
-import Link from "next/link";
+import Link from 'next/link';
 
-export default function Home() {
+export const dynamic = 'force-dynamic';
+
+export default function HomePage() {
   return (
     <main className="home-page">
       <header className="site-header shell">
         <div className="brand">登記サクッと変換</div>
+
         <nav className="site-nav">
           <Link href="/tool">早速使う</Link>
           <Link href="/terms">利用規約</Link>
@@ -25,8 +28,8 @@ export default function Home() {
           </h1>
 
           <p className="hero-lead">
-            PDFを入れるだけで、所在地・地番・面積・最新の持ち主を整理して表示します。
-            結果はその場で確認でき、必要ならCSVやExcelで保存できます。
+            所在地・地番・面積・最新の持ち主を整理して表示。
+            まずはPDFを入れるだけで使えます。
           </p>
 
           <div className="hero-actions">
@@ -65,7 +68,7 @@ export default function Home() {
             <div className="ad-label">広告</div>
             <div className="ad-box">AdSense をここに設置</div>
             <p className="ad-note">
-              広告はトップページのみに表示し、ツール画面には表示しません。
+              広告はトップページのみに表示し、ツール処理画面には表示しません。
             </p>
           </div>
         </div>
