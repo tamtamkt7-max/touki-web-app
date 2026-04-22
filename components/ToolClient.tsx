@@ -24,32 +24,120 @@ function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function threshold(gray: number) {
+  if (gray > 205) return 255;
+  if (gray < 95) return 0;
+  return gray;
+}
+
 function preprocessCanvas(source: HTMLCanvasElement) {
   const canvas = document.createElement('canvas');
   canvas.width = source.width;
   canvas.height = source.height;
+
   const ctx = canvas.getContext('2d');
   if (!ctx) return source;
 
   ctx.drawImage(source, 0, 0);
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = img.data;
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
-    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-    const boosted = avg > 180 ? 255 : avg < 120 ? 0 : avg;
-    data[i] = boosted;
-    data[i + 1] = boosted;
-    data[i + 2] = boosted;
+    const gray = Math.round(
+      data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
+    );
+
+    const contrasted = clamp(Math.round((gray - 128) * 1.7 + 128), 0, 255);
+    const bw = threshold(contrasted);
+
+    data[i] = bw;
+    data[i + 1] = bw;
+    data[i + 2] = bw;
   }
 
-  ctx.putImageData(img, 0, 0);
-  return canvas;
+  ctx.putImageData(imageData, 0, 0);
+
+  return autoCropCanvas(canvas);
+}
+
+function autoCropCanvas(source: HTMLCanvasElement) {
+  const srcCtx = source.getContext('2d');
+  if (!srcCtx) return source;
+
+  const { width, height } = source;
+  const imageData = srcCtx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  const rowHasInk = (y: number) => {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (data[i] < 245) return true;
+    }
+    return false;
+  };
+
+  const colHasInk = (x: number) => {
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4;
+      if (data[i] < 245) return true;
+    }
+    return false;
+  };
+
+  let top = 0;
+  let bottom = height - 1;
+  let left = 0;
+  let right = width - 1;
+
+  while (top < height && !rowHasInk(top)) top++;
+  while (bottom > top && !rowHasInk(bottom)) bottom--;
+  while (left < width && !colHasInk(left)) left++;
+  while (right > left && !colHasInk(right)) right--;
+
+  const padding = 14;
+  top = clamp(top - padding, 0, height - 1);
+  bottom = clamp(bottom + padding, 0, height - 1);
+  left = clamp(left - padding, 0, width - 1);
+  right = clamp(right + padding, 0, width - 1);
+
+  const cropWidth = right - left + 1;
+  const cropHeight = bottom - top + 1;
+
+  if (cropWidth < width * 0.45 || cropHeight < height * 0.45) {
+    return source;
+  }
+
+  const cropped = document.createElement('canvas');
+  cropped.width = cropWidth;
+  cropped.height = cropHeight;
+
+  const croppedCtx = cropped.getContext('2d');
+  if (!croppedCtx) return source;
+
+  croppedCtx.drawImage(
+    source,
+    left,
+    top,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    cropWidth,
+    cropHeight
+  );
+
+  return cropped;
 }
 
 async function extractTextLayerFromPdf(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+
   let fullText = '';
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -64,43 +152,73 @@ async function extractTextLayerFromPdf(file: File) {
   return fullText.trim();
 }
 
-async function renderPdfPagesToImages(file: File) {
+async function renderPdfPages(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const images: string[] = [];
+  const pages: { original: HTMLCanvasElement; processed: HTMLCanvasElement }[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2.2 });
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
+    const viewport = page.getViewport({ scale: 2.8 });
+
+    const original = document.createElement('canvas');
+    const context = original.getContext('2d');
     if (!context) continue;
 
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    original.width = viewport.width;
+    original.height = viewport.height;
 
-    await page.render({ canvasContext: context, viewport }).promise;
-    const processed = preprocessCanvas(canvas);
-    images.push(processed.toDataURL('image/png'));
+    await page.render({
+      canvasContext: context,
+      viewport
+    }).promise;
+
+    const processed = preprocessCanvas(original);
+    pages.push({ original, processed });
   }
 
-  return images;
+  return pages;
+}
+
+async function recognizeImage(
+  image: string,
+  onStatus?: (v: string) => void,
+  label?: string
+) {
+  const result = await Tesseract.recognize(image, 'jpn+eng', {
+    logger: (m) => {
+      if (m.status === 'recognizing text' && label) {
+        onStatus?.(label);
+      }
+    }
+  });
+
+  return result.data.text.trim();
 }
 
 async function extractTextWithOcr(file: File, onStatus?: (v: string) => void) {
-  const images = await renderPdfPagesToImages(file);
+  const pages = await renderPdfPages(file);
   let fullText = '';
 
-  for (let i = 0; i < images.length; i++) {
-    onStatus?.(`画像として読み取っています… ${i + 1}/${images.length}ページ`);
-    const result = await Tesseract.recognize(images[i], 'jpn+eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          onStatus?.(`画像として読み取っています… ${i + 1}/${images.length}ページ`);
-        }
-      }
-    });
-    fullText += result.data.text + '\n';
+  for (let i = 0; i < pages.length; i++) {
+    const pageNo = i + 1;
+
+    const originalText = await recognizeImage(
+      pages[i].original.toDataURL('image/png'),
+      onStatus,
+      `OCRで読み取り中… ${pageNo}/${pages.length}ページ`
+    );
+
+    const processedText = await recognizeImage(
+      pages[i].processed.toDataURL('image/png'),
+      onStatus,
+      `補正して再読取中… ${pageNo}/${pages.length}ページ`
+    );
+
+    const originalScore = originalText.replace(/\s/g, '').length;
+    const processedScore = processedText.replace(/\s/g, '').length;
+
+    fullText += (processedScore >= originalScore ? processedText : originalText) + '\n';
   }
 
   return fullText.trim();
@@ -122,7 +240,10 @@ async function parseWithRawText(rawText: string) {
     throw new Error(text || '解析に失敗しました。');
   }
 
-  if (!res.ok) throw new Error(data?.error || '解析に失敗しました。');
+  if (!res.ok) {
+    throw new Error(data?.error || '解析に失敗しました。');
+  }
+
   return data as ParseResponse;
 }
 
@@ -130,7 +251,11 @@ async function parseWithServerPdf(file: File) {
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch('/api/parse', { method: 'POST', body: formData });
+  const res = await fetch('/api/parse', {
+    method: 'POST',
+    body: formData
+  });
+
   const text = await res.text();
   let data: any;
 
@@ -140,7 +265,10 @@ async function parseWithServerPdf(file: File) {
     throw new Error(text || '解析に失敗しました。');
   }
 
-  if (!res.ok) throw new Error(data?.error || '解析に失敗しました。');
+  if (!res.ok) {
+    throw new Error(data?.error || '解析に失敗しました。');
+  }
+
   return data as ParseResponse;
 }
 
@@ -248,7 +376,10 @@ export function ToolClient() {
     const res = await fetch('/api/parse', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format, fields: result.fields })
+      body: JSON.stringify({
+        format,
+        fields: result.fields
+      })
     });
 
     if (!res.ok) {
@@ -392,16 +523,10 @@ export function ToolClient() {
             <button className="button button-secondary" onClick={resetAll}>
               別のPDFで試す
             </button>
-            <button
-              className="button button-secondary"
-              onClick={() => downloadFile('csv')}
-            >
+            <button className="button button-secondary" onClick={() => downloadFile('csv')}>
               CSVをダウンロード
             </button>
-            <button
-              className="button button-primary"
-              onClick={() => downloadFile('xlsx')}
-            >
+            <button className="button button-primary" onClick={() => downloadFile('xlsx')}>
               Excelをダウンロード
             </button>
           </div>
