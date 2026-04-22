@@ -91,13 +91,17 @@ function extractLatestOwner(text: string, ownersHistory: string[]) {
 }
 
 function extractLocation(text: string) {
-  return pickFirst(text, [
+  const direct = pickFirst(text, [
     /所在\s*[:：]?\s*([^\n]+)/,
     /所\s*在\s*([^\n]+)/,
     /所在欄\s*[:：]?\s*([^\n]+)/,
-    /所在\s+([^\n]+)/,
-    /郡山市[^\n]+/
+    /所在\s+([^\n]+)/
   ]);
+
+  if (direct) return direct;
+
+  const cityLike = text.match(/([^\n]*郡山市[^\n]*)/);
+  return cityLike?.[1] || '';
 }
 
 function extractNumber(text: string) {
