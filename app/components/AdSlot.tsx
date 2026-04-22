@@ -1,6 +1,5 @@
 'use client';
 
-import Script from 'next/script';
 import { useEffect } from 'react';
 
 declare global {
@@ -11,55 +10,34 @@ declare global {
 
 type AdSlotProps = {
   slot: string;
-  format?: 'auto' | 'rectangle' | 'horizontal';
   className?: string;
+  format?: 'auto' | 'horizontal' | 'rectangle';
 };
 
 export default function AdSlot({
   slot,
-  format = 'auto',
-  className = ''
+  className = '',
+  format = 'auto'
 }: AdSlotProps) {
-  const client = process.env.NEXT_PUBLIC_ADSENSE_CLIENT;
-
   useEffect(() => {
-    if (!client) return;
-
     try {
       (window.adsbygoogle = window.adsbygoogle || []).push({});
     } catch {
-      // AdSense未読込や再描画時の失敗は無視
+      // 初回以外や描画タイミング差異は無視
     }
-  }, [client]);
-
-  if (!client) {
-    return (
-      <div className={`ad-box ${className}`}>
-        AdSense をここに設置
-      </div>
-    );
-  }
+  }, []);
 
   return (
-    <>
-      <Script
-        id="adsense-script"
-        async
-        strategy="afterInteractive"
-        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`}
-        crossOrigin="anonymous"
-      />
-      <ins
-        className={`adsbygoogle ${className}`}
-        style={{
-          display: 'block',
-          minHeight: format === 'horizontal' ? '120px' : '180px'
-        }}
-        data-ad-client={client}
-        data-ad-slot={slot}
-        data-ad-format={format}
-        data-full-width-responsive="true"
-      />
-    </>
+    <ins
+      className={`adsbygoogle ${className}`}
+      style={{
+        display: 'block',
+        minHeight: format === 'horizontal' ? '120px' : '180px'
+      }}
+      data-ad-client="ca-pub-5461809032953003"
+      data-ad-slot={slot}
+      data-ad-format={format}
+      data-full-width-responsive="true"
+    />
   );
 }
