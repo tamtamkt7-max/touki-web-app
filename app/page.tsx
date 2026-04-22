@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AdSlot from '@/components/AdSlot';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +67,7 @@ export default function HomePage() {
 
           <div className="panel panel-card ad-panel">
             <div className="ad-label">広告</div>
-            <div className="ad-box">AdSense をここに設置</div>
+            <AdSlot slot="1234567890" />
             <p className="ad-note">
               広告はトップページのみに表示し、ツール処理画面には表示しません。
             </p>
