@@ -37,6 +37,9 @@ export default function HomePage() {
             <Link href="/tool" className="button button-primary">
               早速使う
             </Link>
+            <Link href="/terms" className="button button-secondary">
+              利用前に確認する
+            </Link>
           </div>
 
           <div className="trust-pills">
@@ -96,6 +99,30 @@ export default function HomePage() {
           </ul>
         </article>
       </section>
+
+      <section className="home-cta shell">
+        <article className="panel panel-card home-cta-panel">
+          <h2>準備は完了です。まず1件、PDFで試してみましょう。</h2>
+          <p>
+            画面で結果を確認してから保存できるため、いきなりダウンロードだけで終わることはありません。
+            はじめてでも迷わず使える導線にしています。
+          </p>
+          <div className="home-cta-actions">
+            <Link href="/tool" className="button button-primary">
+              ツールを開く
+            </Link>
+          </div>
+        </article>
+      </section>
+
+      <footer className="site-footer shell">
+        <p className="site-footer-copy">© {new Date().getFullYear()} 登記サクッと変換</p>
+        <nav className="site-footer-nav">
+          <Link href="/tool">ツール</Link>
+          <Link href="/terms">利用規約</Link>
+          <Link href="/privacy">プライバシーポリシー</Link>
+        </nav>
+      </footer>
     </main>
   );
 }
