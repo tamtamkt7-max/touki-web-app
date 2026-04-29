@@ -28,38 +28,99 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function threshold(gray: number) {
-  if (gray > 205) return 255;
-  if (gray < 95) return 0;
-  return gray;
+function otsuThreshold(grays: Uint8Array) {
+  const hist = new Array<number>(256).fill(0);
+  for (let i = 0; i < grays.length; i++) hist[grays[i]]++;
+
+  const total = grays.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let maxVar = 0;
+  let threshold = 128;
+
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+
+    const wF = total - wB;
+    if (wF === 0) break;
+
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const variance = wB * wF * (mB - mF) * (mB - mF);
+
+    if (variance > maxVar) {
+      maxVar = variance;
+      threshold = t;
+    }
+  }
+
+  return clamp(threshold, 70, 210);
+}
+
+function despeckleBinary(data: Uint8ClampedArray, width: number, height: number) {
+  const copy = new Uint8ClampedArray(data);
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = idx(x, y);
+      const center = copy[i];
+      let blackNeighbors = 0;
+
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          if (kx === 0 && ky === 0) continue;
+          if (copy[idx(x + kx, y + ky)] < 128) blackNeighbors++;
+        }
+      }
+
+      if (center < 128 && blackNeighbors <= 1) {
+        data[i] = 255;
+        data[i + 1] = 255;
+        data[i + 2] = 255;
+      }
+    }
+  }
 }
 
 function preprocessCanvas(source: HTMLCanvasElement) {
   const canvas = document.createElement('canvas');
-  canvas.width = source.width;
-  canvas.height = source.height;
+  canvas.width = Math.round(source.width * 1.25);
+  canvas.height = Math.round(source.height * 1.25);
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return source;
 
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0);
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
+  const grays = new Uint8Array(canvas.width * canvas.height);
 
   for (let i = 0; i < data.length; i += 4) {
-    const gray = Math.round(
+    const rawGray = Math.round(
       data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
     );
+    const contrasted = clamp(Math.round((rawGray - 128) * 1.9 + 128), 0, 255);
+    grays[i / 4] = contrasted;
+  }
 
-    const contrasted = clamp(Math.round((gray - 128) * 1.7 + 128), 0, 255);
-    const bw = threshold(contrasted);
+  const threshold = otsuThreshold(grays);
 
+  for (let i = 0; i < data.length; i += 4) {
+    const bw = grays[i / 4] >= threshold ? 255 : 0;
     data[i] = bw;
     data[i + 1] = bw;
     data[i + 2] = bw;
   }
 
+  despeckleBinary(data, canvas.width, canvas.height);
   ctx.putImageData(imageData, 0, 0);
 
   return autoCropCanvas(canvas);
@@ -134,6 +195,45 @@ function autoCropCanvas(source: HTMLCanvasElement) {
   return cropped;
 }
 
+function shouldProcessPageForOcr(pageText: string, pageNum: number) {
+  const compact = pageText.replace(/\s/g, '');
+  const keywordScore = [
+    '表題部',
+    '権利部',
+    '甲区',
+    '乙区',
+    '所在',
+    '地番',
+    '地積',
+    '床面積',
+    '建物面積',
+    '所有者',
+    '権利者',
+    '順位番号',
+    '原因'
+  ].reduce((score, keyword) => (compact.includes(keyword) ? score + 1 : score), 0);
+
+  const garbledScore = (compact.match(/�|\?|□|◯|・{2,}/g) || []).length;
+
+  // 1ページ目は表題部の可能性が高いため積極的に対象化
+  if (pageNum === 1) {
+    if (compact.length < 160) return true;
+    return keywordScore >= 1 && compact.length < 220;
+  }
+
+  // 文字層が十分なページはOCR対象外（速度優先）
+  if (compact.length >= 220 && garbledScore === 0) {
+    return false;
+  }
+
+  // 文字層が乏しい・崩れている・登記キーワードを含む場合のみOCR
+  if (compact.length < 60) return true;
+  if (garbledScore >= 2) return true;
+  if (keywordScore >= 1 && compact.length < 180) return true;
+
+  return false;
+}
+
 async function extractTextLayerFromPdf(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
@@ -159,6 +259,15 @@ async function renderPdfPages(file: File) {
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => ('str' in item ? item.str : ''))
+      .join(' ');
+
+    if (!shouldProcessPageForOcr(pageText, pageNum)) {
+      continue;
+    }
+
     const viewport = page.getViewport({ scale: 2.8 });
 
     const original = document.createElement('canvas');
@@ -175,6 +284,20 @@ async function renderPdfPages(file: File) {
 
     const processed = preprocessCanvas(original);
     pages.push({ original, processed });
+  }
+
+  if (pages.length === 0) {
+    const firstPage = await pdf.getPage(1);
+    const viewport = firstPage.getViewport({ scale: 2.8 });
+    const original = document.createElement('canvas');
+    const context = original.getContext('2d');
+
+    if (context) {
+      original.width = viewport.width;
+      original.height = viewport.height;
+      await firstPage.render({ canvasContext: context, viewport }).promise;
+      pages.push({ original, processed: preprocessCanvas(original) });
+    }
   }
 
   return pages;
