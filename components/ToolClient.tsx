@@ -20,6 +20,8 @@ type ParseResponse = {
   fields: ExtractedFields;
 };
 
+type TextSource = 'text-layer' | 'server' | 'ocr-original' | 'ocr-light' | 'ocr-binary';
+
 type TextQuality = {
   score: number;
   labelCount: number;
@@ -30,9 +32,21 @@ type TextQuality = {
 };
 
 type TextCandidate = {
-  source: 'text-layer' | 'server' | 'ocr';
+  source: TextSource;
   rawText: string;
   parsed: ParseResponse;
+  quality: TextQuality;
+};
+
+type OcrPage = {
+  original: HTMLCanvasElement;
+  light: HTMLCanvasElement;
+  binary: HTMLCanvasElement;
+};
+
+type OcrTextResult = {
+  text: string;
+  source: Extract<TextSource, 'ocr-original' | 'ocr-light' | 'ocr-binary'>;
   quality: TextQuality;
 };
 
@@ -97,12 +111,12 @@ function scoreTextQuality(text: string): TextQuality {
   return { score, labelCount, japaneseRatio, garbageLineCount, length, lineCount: lines.length };
 }
 
-function isUsableQuality(quality: TextQuality, source: TextCandidate['source']) {
+function isUsableQuality(quality: TextQuality, source: TextSource) {
   if (quality.length < 40) return false;
   if (quality.labelCount < 1) return false;
   if (quality.japaneseRatio < 0.18) return false;
   if (quality.garbageLineCount >= 8) return false;
-  if (source === 'ocr') {
+  if (source.startsWith('ocr-')) {
     return quality.score >= 55 && quality.labelCount >= 2 && quality.garbageLineCount <= 3;
   }
   return quality.score >= 45;
@@ -130,6 +144,16 @@ function previewScore(candidate: TextCandidate) {
   );
 }
 
+function previewScoreForText(text: string) {
+  const quality = scoreTextQuality(text);
+  return (
+    quality.score +
+    Math.min(quality.length / 8, 60) +
+    quality.labelCount * 12 -
+    quality.garbageLineCount * 6
+  );
+}
+
 function emptyParseResponse(previewText = ''): ParseResponse {
   return {
     fields: {
@@ -142,6 +166,21 @@ function emptyParseResponse(previewText = ''): ParseResponse {
       raw: previewText
     }
   };
+}
+
+function sourceLabel(source: TextSource) {
+  switch (source) {
+    case 'text-layer':
+      return '文字層';
+    case 'server':
+      return 'サーバー解析';
+    case 'ocr-original':
+      return 'OCR original';
+    case 'ocr-light':
+      return 'OCR light';
+    case 'ocr-binary':
+      return 'OCR binary';
+  }
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -210,8 +249,8 @@ function despeckleBinary(data: Uint8ClampedArray, width: number, height: number)
 
 function preprocessCanvas(source: HTMLCanvasElement) {
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(source.width * 1.25);
-  canvas.height = Math.round(source.height * 1.25);
+  canvas.width = source.width;
+  canvas.height = source.height;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return source;
@@ -244,6 +283,34 @@ function preprocessCanvas(source: HTMLCanvasElement) {
   ctx.putImageData(imageData, 0, 0);
 
   return autoCropCanvas(canvas);
+}
+
+function lightPreprocessCanvas(source: HTMLCanvasElement) {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return source;
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const rawGray = Math.round(
+      data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
+    );
+    const contrasted = clamp(Math.round((rawGray - 128) * 1.35 + 128), 0, 255);
+    data[i] = contrasted;
+    data[i + 1] = contrasted;
+    data[i + 2] = contrasted;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
 }
 
 function autoCropCanvas(source: HTMLCanvasElement) {
@@ -280,7 +347,7 @@ function autoCropCanvas(source: HTMLCanvasElement) {
   while (left < width && !colHasInk(left)) left++;
   while (right > left && !colHasInk(right)) right--;
 
-  const padding = 14;
+  const padding = 60;
   top = clamp(top - padding, 0, height - 1);
   bottom = clamp(bottom + padding, 0, height - 1);
   left = clamp(left - padding, 0, width - 1);
@@ -289,7 +356,7 @@ function autoCropCanvas(source: HTMLCanvasElement) {
   const cropWidth = right - left + 1;
   const cropHeight = bottom - top + 1;
 
-  if (cropWidth < width * 0.45 || cropHeight < height * 0.45) {
+  if (cropWidth < width * 0.75 || cropHeight < height * 0.75) {
     return source;
   }
 
@@ -375,7 +442,7 @@ async function extractTextLayerFromPdf(file: File) {
 async function renderPdfPages(file: File) {
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const pages: { original: HTMLCanvasElement; processed: HTMLCanvasElement }[] = [];
+  const pages: OcrPage[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -388,7 +455,7 @@ async function renderPdfPages(file: File) {
       continue;
     }
 
-    const viewport = page.getViewport({ scale: 2.8 });
+    const viewport = page.getViewport({ scale: 3.4 });
 
     const original = document.createElement('canvas');
     const context = original.getContext('2d');
@@ -402,13 +469,16 @@ async function renderPdfPages(file: File) {
       viewport
     }).promise;
 
-    const processed = preprocessCanvas(original);
-    pages.push({ original, processed });
+    pages.push({
+      original,
+      light: lightPreprocessCanvas(original),
+      binary: preprocessCanvas(original)
+    });
   }
 
   if (pages.length === 0) {
     const firstPage = await pdf.getPage(1);
-    const viewport = firstPage.getViewport({ scale: 2.8 });
+    const viewport = firstPage.getViewport({ scale: 3.4 });
     const original = document.createElement('canvas');
     const context = original.getContext('2d');
 
@@ -416,7 +486,11 @@ async function renderPdfPages(file: File) {
       original.width = viewport.width;
       original.height = viewport.height;
       await firstPage.render({ canvasContext: context, viewport }).promise;
-      pages.push({ original, processed: preprocessCanvas(original) });
+      pages.push({
+        original,
+        light: lightPreprocessCanvas(original),
+        binary: preprocessCanvas(original)
+      });
     }
   }
 
@@ -439,32 +513,68 @@ async function recognizeImage(
   return result.data.text.trim();
 }
 
-async function extractTextWithOcr(file: File, onStatus?: (v: string) => void) {
+async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): Promise<OcrTextResult> {
   const pages = await renderPdfPages(file);
   let fullText = '';
+  const sourceCounts: Record<OcrTextResult['source'], number> = {
+    'ocr-original': 0,
+    'ocr-light': 0,
+    'ocr-binary': 0
+  };
 
   for (let i = 0; i < pages.length; i++) {
     const pageNo = i + 1;
 
-    const originalText = await recognizeImage(
-      pages[i].original.toDataURL('image/png'),
-      onStatus,
-      `OCRで読み取り中… ${pageNo}/${pages.length}ページ`
-    );
+    const variants: Array<{
+      source: OcrTextResult['source'];
+      canvas: HTMLCanvasElement;
+      label: string;
+    }> = [
+      {
+        source: 'ocr-original',
+        canvas: pages[i].original,
+        label: `OCRで読み取り中… ${pageNo}/${pages.length}ページ`
+      },
+      {
+        source: 'ocr-light',
+        canvas: pages[i].light,
+        label: `軽く補正して読み取り中… ${pageNo}/${pages.length}ページ`
+      },
+      {
+        source: 'ocr-binary',
+        canvas: pages[i].binary,
+        label: `二値化して読み取り中… ${pageNo}/${pages.length}ページ`
+      }
+    ];
 
-    const processedText = await recognizeImage(
-      pages[i].processed.toDataURL('image/png'),
-      onStatus,
-      `補正して再読取中… ${pageNo}/${pages.length}ページ`
-    );
+    const results = [];
+    for (const variant of variants) {
+      const text = await recognizeImage(
+        variant.canvas.toDataURL('image/png'),
+        onStatus,
+        variant.label
+      );
+      results.push({
+        source: variant.source,
+        text,
+        quality: scoreTextQuality(text)
+      });
+    }
 
-    const originalScore = scoreTextQuality(originalText).score;
-    const processedScore = scoreTextQuality(processedText).score;
-
-    fullText += (processedScore >= originalScore ? processedText : originalText) + '\n';
+    const best = results.sort((a, b) => previewScoreForText(b.text) - previewScoreForText(a.text))[0];
+    sourceCounts[best.source] += 1;
+    fullText += `${best.text}\n`;
   }
 
-  return fullText.trim();
+  const source = (Object.entries(sourceCounts) as Array<[OcrTextResult['source'], number]>).sort(
+    (a, b) => b[1] - a[1]
+  )[0][0];
+
+  return {
+    text: fullText.trim(),
+    source,
+    quality: scoreTextQuality(fullText)
+  };
 }
 
 async function parseWithRawText(rawText: string) {
@@ -523,6 +633,7 @@ export function ToolClient() {
   const [statusText, setStatusText] = useState('');
   const [doneMessage, setDoneMessage] = useState('');
   const [qualityWarning, setQualityWarning] = useState('');
+  const [readMeta, setReadMeta] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLElement | null>(null);
 
@@ -568,6 +679,7 @@ export function ToolClient() {
     setResult(null);
     setDoneMessage('');
     setQualityWarning('');
+    setReadMeta('');
     setStatusText('PDFの文字を確認しています…');
 
     try {
@@ -605,12 +717,12 @@ export function ToolClient() {
 
       const bestBeforeOcr = chooseBestCandidate();
       if (!bestBeforeOcr || !isStrongQuality(bestBeforeOcr.quality)) {
-        const ocrText = await extractTextWithOcr(file, setStatusText);
+        const ocrResult = await extractTextWithOcr(file, setStatusText);
 
-        if (hasEnoughText(ocrText)) {
+        if (hasEnoughText(ocrResult.text)) {
           setStatusText('読み取った内容を整理しています…');
-          const parsed = await parseWithRawText(ocrText);
-          addCandidate('ocr', ocrText, parsed);
+          const parsed = await parseWithRawText(ocrResult.text);
+          addCandidate(ocrResult.source, ocrResult.text, parsed);
         }
       }
 
@@ -618,6 +730,12 @@ export function ToolClient() {
       const usableBest = best && isUsableQuality(best.quality, best.source) ? best : null;
       const previewBest = choosePreviewCandidate();
       const previewText = previewBest?.rawText || '';
+      const displayCandidate = usableBest || previewBest;
+      setReadMeta(
+        displayCandidate
+          ? `読み取り方法: ${sourceLabel(displayCandidate.source)} / 品質スコア: ${Math.round(displayCandidate.quality.score)}`
+          : ''
+      );
 
       if (usableBest) {
         setResult({
@@ -641,6 +759,7 @@ export function ToolClient() {
       setStatusText('');
       setDoneMessage('');
       setQualityWarning('');
+      setReadMeta('');
     } finally {
       setLoading(false);
     }
@@ -679,6 +798,7 @@ export function ToolClient() {
     setStatusText('');
     setDoneMessage('');
     setQualityWarning('');
+    setReadMeta('');
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -788,6 +908,7 @@ export function ToolClient() {
               <div className="result-card-header">
                 <h3>抽出結果プレビュー</h3>
               </div>
+              {readMeta ? <p className="muted">{readMeta}</p> : null}
 
               <textarea
                 readOnly
