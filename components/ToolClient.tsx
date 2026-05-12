@@ -74,6 +74,7 @@ type OcrDiagnostics = {
   normalizedText?: string;
   normalizedQuality?: TextQuality;
   normalizedExtracted?: ExtractedFields;
+  fieldReasons?: string[];
   extractionAccepted?: boolean;
 };
 
@@ -308,6 +309,15 @@ function mergeFieldCandidates(candidates: TextCandidate[], previewText: string):
       raw: previewText
     }
   };
+}
+
+function buildFieldReasons(fields: ExtractedFields) {
+  return [
+    `location: ${fields.location ? `${fields.location}（表題部由来候補）` : '未検出（表題部所在なし、または候補が住所/担保目録由来のため却下）'}`,
+    `number: ${fields.number ? `${fields.number}（地番ラベル近傍候補）` : '未検出（住所内番地や担保目録由来の可能性を却下）'}`,
+    `owner: ${fields.owner ? `${fields.owner}（甲区の有効エントリ候補）` : '未検出（最新エントリの人名/法人名が低信頼、または見出し行のため却下）'}`,
+    `history: ${fields.ownersHistory?.length || 0}件（甲区所有権事項を優先）`
+  ];
 }
 
 function formatExtractedSummary(fields?: ExtractedFields) {
@@ -935,6 +945,7 @@ export function ToolClient() {
       if (latestOcrDiagnostics) {
         setOcrDiagnostics({
           ...latestOcrDiagnostics,
+          fieldReasons: buildFieldReasons(fieldMerged.fields),
           extractionAccepted: Boolean(usableBest || fieldMergedAccepted),
           adoptedSource: displayCandidate?.source || latestOcrDiagnostics.adoptedSource
         });
@@ -1146,6 +1157,16 @@ export function ToolClient() {
                         ? ` / 正規化後スコア: ${formatScore(ocrDiagnostics.normalizedQuality.score)}`
                         : ''}
                     </div>
+                    {ocrDiagnostics.fieldReasons && ocrDiagnostics.fieldReasons.length > 0 ? (
+                      <div className="muted">
+                        採用フィールド:
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          {ocrDiagnostics.fieldReasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
 
                     {ocrDiagnostics.variants.map((variant) => (
                       <section key={variant.source} style={{ display: 'grid', gap: 8 }}>
