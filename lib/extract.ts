@@ -99,7 +99,80 @@ function isPlausibleText(line: string) {
   const cleaned = cleanValue(line);
   if (isNoiseLine(cleaned)) return false;
   if (/�/.test(cleaned)) return false;
+  if (looksLikeOcrGarbage(cleaned)) return false;
   return true;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return (value.match(pattern) || []).length;
+}
+
+function ratio(part: number, total: number) {
+  return total > 0 ? part / total : 0;
+}
+
+function hasJapaneseLikeText(value: string) {
+  return /[\u3040-\u30ff\u3400-\u9fff々〆ヶ]/.test(value);
+}
+
+function looksLikeOcrGarbage(value: string) {
+  const compact = value.replace(/\s/g, '');
+  if (!compact) return true;
+
+  const alphaNum = countMatches(compact, /[A-Za-z0-9]/g);
+  const symbols = countMatches(compact, /[^A-Za-z0-9\u3040-\u30ff\u3400-\u9fff々〆ヶ\s]/g);
+  const weirdTokens = countMatches(value, /\b[A-Za-z]{4,}\b/g);
+  const hasJapanese = hasJapaneseLikeText(compact);
+
+  if (!hasJapanese && compact.length >= 6 && ratio(alphaNum, compact.length) >= 0.55) return true;
+  if (!hasJapanese && ratio(symbols, compact.length) >= 0.35) return true;
+  if (weirdTokens >= 2 && ratio(alphaNum, compact.length) >= 0.35) return true;
+  if (/[A-Z]{4,}|\b[a-z]{5,}\b/.test(value) && !hasJapanese) return true;
+
+  return false;
+}
+
+function hasFieldContamination(value: string) {
+  return /所有権保存|所有権移転|所有権|原因|受付|順位番号|権利部|甲区|乙区|表題部|地積|床面積|権利者|所有者/.test(value);
+}
+
+function hasHighAsciiNoise(value: string, maxRatio = 0.25) {
+  const compact = value.replace(/\s/g, '');
+  if (!compact) return true;
+  return ratio(countMatches(compact, /[A-Za-z*]/g), compact.length) > maxRatio;
+}
+
+function safeLocation(value: string) {
+  const cleaned = cleanValue(value);
+  if (!cleaned) return '';
+  if (!isPlausibleText(cleaned)) return '';
+  if (!hasJapaneseLikeText(cleaned)) return '';
+  if (hasHighAsciiNoise(cleaned, 0.18)) return '';
+  if (hasFieldContamination(cleaned)) return '';
+  return cleaned;
+}
+
+function safeNumber(value: string) {
+  const cleaned = cleanValue(value);
+  if (!cleaned || looksLikeOcrGarbage(cleaned)) return '';
+  const m = cleaned.match(/^([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5})$/);
+  return m ? m[1] : '';
+}
+
+function safeArea(value: string) {
+  const normalized = normalizeArea(value);
+  const m = normalized.match(/^([0-9]{1,7}(?:\.[0-9]{1,2})?)㎡$/);
+  return m ? `${m[1]}㎡` : '';
+}
+
+function safeOwner(value: string) {
+  const cleaned = cleanValue(value);
+  if (!cleaned) return '';
+  if (!isPlausibleText(cleaned)) return '';
+  if (hasFieldContamination(cleaned)) return '';
+  if (hasHighAsciiNoise(cleaned, 0.12)) return '';
+  if (cleaned.length > 40) return '';
+  return looksLikeCorp(cleaned) || looksLikePerson(cleaned) ? cleaned : '';
 }
 
 function findHeadingIndex(lines: string[], heading: RegExp) {
@@ -188,6 +261,25 @@ function extractFromInlineTitleRow(section: string[], label: string) {
   return '';
 }
 
+function extractAreaByLabel(section: string[], label: string, lookAhead = 5) {
+  const idx = section.findIndex((line) => line.includes(label));
+  if (idx < 0) return '';
+
+  const sameLine = safeArea(section[idx].split(label).slice(1).join(' '));
+  if (sameLine) return sameLine;
+
+  for (let i = idx + 1; i <= Math.min(section.length - 1, idx + lookAhead); i++) {
+    const line = section[i];
+    if (TITLE_LABELS.some((v) => line.startsWith(v) && v !== label)) break;
+    if (/^(権利部|甲区|乙区)/.test(line)) break;
+
+    const value = safeArea(line);
+    if (value) return value;
+  }
+
+  return '';
+}
+
 function extractLocationFromTitle(title: string[], all: string[]) {
   const candidates = [
     extractFromInlineTitleRow(title, '所在'),
@@ -197,13 +289,13 @@ function extractLocationFromTitle(title: string[], all: string[]) {
 
   for (const c of candidates) {
     if (!c) continue;
-    if (!isPlausibleText(c)) continue;
-    return c;
+    const safe = safeLocation(c);
+    if (safe) return safe;
   }
 
   const joined = all.join('\n');
   const m = joined.match(/(.*?[都道府県].*?[市区町村].*)/);
-  return m ? cleanValue(m[1]) : '';
+  return m ? safeLocation(m[1]) : '';
 }
 
 function extractNumberFromTitle(title: string[], all: string[]) {
@@ -216,42 +308,41 @@ function extractNumberFromTitle(title: string[], all: string[]) {
   for (const c of candidates) {
     if (!c) continue;
     const m = c.match(/([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5})/);
-    if (m) return m[1];
+    if (m) return safeNumber(m[1]);
   }
 
   const joined = all.join(' ');
   const m = joined.match(/([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5})/);
-  return m ? cleanValue(m[1]) : '';
+  return m ? safeNumber(m[1]) : '';
 }
 
 function extractAreaFromTitle(title: string[], all: string[]) {
   const candidates = [
-    extractFromInlineTitleRow(title, '地積'),
-    findLabelValueByPosition(title, '地積', 5),
-    findLabelValueByPosition(all, '地積', 5)
-  ].map(normalizeArea);
+    extractAreaByLabel(title, '地積', 5),
+    extractAreaByLabel(all, '地積', 5)
+  ];
 
   for (const c of candidates) {
-    if (c) return c;
+    const safe = safeArea(c);
+    if (safe) return safe;
   }
 
   const joined = all.join(' ');
   const m = joined.match(/([0-9]+(?:\.[0-9]+)?\s*㎡)/);
-  return m ? normalizeArea(m[1]) : '';
+  return m ? safeArea(m[1]) : '';
 }
 
 function extractBuildingAreaFromTitle(title: string[], all: string[]) {
   const candidates = [
-    extractFromInlineTitleRow(title, '床面積'),
-    extractFromInlineTitleRow(title, '建物面積'),
-    findLabelValueByPosition(title, '床面積', 5),
-    findLabelValueByPosition(title, '建物面積', 5),
-    findLabelValueByPosition(all, '床面積', 5),
-    findLabelValueByPosition(all, '建物面積', 5)
-  ].map(normalizeArea);
+    extractAreaByLabel(title, '床面積', 5),
+    extractAreaByLabel(title, '建物面積', 5),
+    extractAreaByLabel(all, '床面積', 5),
+    extractAreaByLabel(all, '建物面積', 5)
+  ];
 
   for (const c of candidates) {
-    if (c) return c;
+    const safe = safeArea(c);
+    if (safe) return safe;
   }
 
   return '';
@@ -304,7 +395,8 @@ function extractOwnerCandidates(lines: string[]) {
 
   return unique(raw)
     .map(cleanValue)
-    .filter((v) => isPlausibleText(v))
+    .map(safeOwner)
+    .filter(Boolean)
     .filter((v) => !/^(持分|住所|受付|順位|原因|記載)/.test(v))
     .filter((v) => looksLikeCorp(v) || looksLikePerson(v));
 }
@@ -400,7 +492,8 @@ function fallbackOwners(allLines: string[], ownersHistory: string[]) {
   const lineBased = allLines
     .filter((line) => /所有者|権利者/.test(line))
     .map((line) => line.replace(/^(所有者|権利者その他事項|権利者)\s*[:：]?/, '').trim())
-    .filter((line) => looksLikeCorp(line) || looksLikePerson(line));
+    .map(safeOwner)
+    .filter(Boolean);
 
   if (lineBased.length > 0) {
     return unique(lineBased.slice(-2));
@@ -410,7 +503,8 @@ function fallbackOwners(allLines: string[], ownersHistory: string[]) {
     .map((v) => v.replace(/^.*権利者:\s*/, ''))
     .flatMap((v) => v.split('/'))
     .map(cleanValue)
-    .filter((v) => looksLikeCorp(v) || looksLikePerson(v));
+    .map(safeOwner)
+    .filter(Boolean);
 
   return unique(fromHistory.slice(-2));
 }
@@ -431,15 +525,15 @@ export function extractToukiFields(text: string): ExtractedFields {
   const ownersHistory = extractOwnersHistory(koukuEntries, sections.all);
   const owners = extractLatestOwnersFromKouku(koukuEntries);
   const fallback = fallbackOwners(sections.all, ownersHistory);
-  const ownerList = owners.length > 0 ? owners : fallback;
+  const ownerList = (owners.length > 0 ? owners : fallback).map(safeOwner).filter(Boolean);
 
   return {
-    location,
-    number,
-    area,
-    buildingArea,
+    location: safeLocation(location),
+    number: safeNumber(number),
+    area: safeArea(area),
+    buildingArea: safeArea(buildingArea),
     owner: ownerList.join(' / '),
-    ownersHistory,
+    ownersHistory: ownersHistory.filter((v) => isPlausibleText(v) && !looksLikeOcrGarbage(v)),
     raw: normalized
   };
 }

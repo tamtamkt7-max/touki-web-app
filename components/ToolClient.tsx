@@ -20,8 +20,109 @@ type ParseResponse = {
   fields: ExtractedFields;
 };
 
+type TextQuality = {
+  score: number;
+  labelCount: number;
+  japaneseRatio: number;
+  garbageLineCount: number;
+  length: number;
+};
+
+type TextCandidate = {
+  source: 'text-layer' | 'server' | 'ocr';
+  rawText: string;
+  parsed: ParseResponse;
+  quality: TextQuality;
+};
+
 function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
+}
+
+const TOUKI_LABEL_PATTERNS = [
+  /表\s*題\s*部/,
+  /所\s*在/,
+  /地\s*番/,
+  /地\s*積/,
+  /権\s*利\s*部/,
+  /甲\s*[区區]/,
+  /乙\s*[区區]/,
+  /所\s*有\s*者/,
+  /権\s*利\s*者/
+];
+
+function countMatches(value: string, pattern: RegExp) {
+  return (value.match(pattern) || []).length;
+}
+
+function scoreTextQuality(text: string): TextQuality {
+  const compact = text.replace(/\s/g, '');
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const length = compact.length;
+  const japaneseCount = countMatches(compact, /[\u3040-\u30ff\u3400-\u9fff々〆ヶ]/g);
+  const asciiCount = countMatches(compact, /[A-Za-z0-9]/g);
+  const symbolCount = countMatches(compact, /[^A-Za-z0-9\u3040-\u30ff\u3400-\u9fff々〆ヶ\s]/g);
+  const weirdTokenCount = countMatches(text, /\b[A-Za-z]{4,}\b/g);
+  const labelCount = TOUKI_LABEL_PATTERNS.reduce(
+    (count, pattern) => count + (pattern.test(text) ? 1 : 0),
+    0
+  );
+  const garbageLineCount = lines.filter((line) => {
+    const lineCompact = line.replace(/\s/g, '');
+    if (lineCompact.length < 4) return false;
+    const lineJapanese = countMatches(lineCompact, /[\u3040-\u30ff\u3400-\u9fff々〆ヶ]/g);
+    const lineAscii = countMatches(lineCompact, /[A-Za-z0-9]/g);
+    const lineSymbols = countMatches(lineCompact, /[^A-Za-z0-9\u3040-\u30ff\u3400-\u9fff々〆ヶ\s]/g);
+    const lineWeirdWords = countMatches(line, /\b[A-Za-z]{4,}\b/g);
+    return (
+      (lineJapanese === 0 && lineAscii / lineCompact.length >= 0.55) ||
+      (lineJapanese === 0 && lineSymbols / lineCompact.length >= 0.35) ||
+      lineWeirdWords >= 2
+    );
+  }).length;
+
+  const japaneseRatio = length > 0 ? japaneseCount / length : 0;
+  const asciiRatio = length > 0 ? asciiCount / length : 0;
+  const symbolRatio = length > 0 ? symbolCount / length : 0;
+  const score =
+    Math.min(length / 6, 45) +
+    japaneseRatio * 80 +
+    labelCount * 22 -
+    asciiRatio * 35 -
+    symbolRatio * 35 -
+    weirdTokenCount * 8 -
+    garbageLineCount * 15;
+
+  return { score, labelCount, japaneseRatio, garbageLineCount, length };
+}
+
+function isUsableQuality(quality: TextQuality, source: TextCandidate['source']) {
+  if (quality.length < 40) return false;
+  if (quality.labelCount < 1) return false;
+  if (quality.japaneseRatio < 0.18) return false;
+  if (quality.garbageLineCount >= 8) return false;
+  if (source === 'ocr') {
+    return quality.score >= 55 && quality.labelCount >= 2 && quality.garbageLineCount <= 3;
+  }
+  return quality.score >= 45;
+}
+
+function isStrongQuality(quality: TextQuality) {
+  return quality.score >= 85 && quality.labelCount >= 3 && quality.garbageLineCount <= 2;
+}
+
+function emptyParseResponse(): ParseResponse {
+  return {
+    fields: {
+      location: '',
+      number: '',
+      area: '',
+      buildingArea: '',
+      owner: '',
+      ownersHistory: [],
+      raw: ''
+    }
+  };
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -338,8 +439,8 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void) {
       `補正して再読取中… ${pageNo}/${pages.length}ページ`
     );
 
-    const originalScore = originalText.replace(/\s/g, '').length;
-    const processedScore = processedText.replace(/\s/g, '').length;
+    const originalScore = scoreTextQuality(originalText).score;
+    const processedScore = scoreTextQuality(processedText).score;
 
     fullText += (processedScore >= originalScore ? processedText : originalText) + '\n';
   }
@@ -402,28 +503,29 @@ export function ToolClient() {
   const [error, setError] = useState('');
   const [statusText, setStatusText] = useState('');
   const [doneMessage, setDoneMessage] = useState('');
+  const [qualityWarning, setQualityWarning] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLElement | null>(null);
 
   const summaryCards = useMemo(() => {
     if (!result?.fields) return [];
     return [
-      { label: '最新の持ち主', value: result.fields.owner || '不明' },
-      { label: '所在地', value: result.fields.location || '未抽出' },
-      { label: '地番', value: result.fields.number || '未抽出' },
-      { label: '土地の面積', value: result.fields.area || '未抽出' },
-      { label: '建物の面積', value: result.fields.buildingArea || '未抽出' }
+      { label: '最新の持ち主', value: result.fields.owner || '未検出' },
+      { label: '所在地', value: result.fields.location || '未検出' },
+      { label: '地番', value: result.fields.number || '未検出' },
+      { label: '土地の面積', value: result.fields.area || '未検出' },
+      { label: '建物の面積', value: result.fields.buildingArea || '未検出' }
     ];
   }, [result]);
 
   const detailRows = useMemo(() => {
     if (!result?.fields) return [];
     return [
-      ['最新の持ち主', result.fields.owner || '不明'],
-      ['所在地', result.fields.location || '未抽出'],
-      ['地番', result.fields.number || '未抽出'],
-      ['土地の面積', result.fields.area || '未抽出'],
-      ['建物の面積', result.fields.buildingArea || '未抽出']
+      ['最新の持ち主', result.fields.owner || '未検出'],
+      ['所在地', result.fields.location || '未検出'],
+      ['地番', result.fields.number || '未検出'],
+      ['土地の面積', result.fields.area || '未検出'],
+      ['建物の面積', result.fields.buildingArea || '未検出']
     ];
   }, [result]);
 
@@ -446,48 +548,69 @@ export function ToolClient() {
     setError('');
     setResult(null);
     setDoneMessage('');
+    setQualityWarning('');
     setStatusText('PDFの文字を確認しています…');
 
     try {
+      const candidates: TextCandidate[] = [];
+      const addCandidate = (source: TextCandidate['source'], rawText: string, parsed: ParseResponse) => {
+        candidates.push({
+          source,
+          rawText,
+          parsed,
+          quality: scoreTextQuality(rawText)
+        });
+      };
+      const chooseBestCandidate = () =>
+        [...candidates].sort((a, b) => b.quality.score - a.quality.score)[0];
+
       const textLayer = await extractTextLayerFromPdf(file);
 
       if (hasEnoughText(textLayer)) {
         setStatusText('文字を整理しています…');
         const parsed = await parseWithRawText(textLayer);
-        setResult(parsed);
-        setDoneMessage('抽出が完了しました。内容を確認してください。');
-        setStatusText('');
-        return;
+        addCandidate('text-layer', textLayer, parsed);
       }
 
       setStatusText('別の方法でPDFを確認しています…');
       try {
         const serverParsed = await parseWithServerPdf(file);
-        setResult(serverParsed);
-        setDoneMessage('抽出が完了しました。内容を確認してください。');
-        setStatusText('');
-        return;
+        addCandidate('server', serverParsed.fields.raw || '', serverParsed);
       } catch {
         // OCRへ進む
       }
 
-      const ocrText = await extractTextWithOcr(file, setStatusText);
+      const bestBeforeOcr = chooseBestCandidate();
+      if (!bestBeforeOcr || !isStrongQuality(bestBeforeOcr.quality)) {
+        const ocrText = await extractTextWithOcr(file, setStatusText);
 
-      if (!hasEnoughText(ocrText)) {
-        throw new Error(
-          'このPDFは文字をうまく読み取れませんでした。より鮮明なPDFか、文字がはっきり写ったPDFでお試しください。'
-        );
+        if (hasEnoughText(ocrText)) {
+          setStatusText('読み取った内容を整理しています…');
+          const parsed = await parseWithRawText(ocrText);
+          addCandidate('ocr', ocrText, parsed);
+        }
       }
 
-      setStatusText('読み取った内容を整理しています…');
-      const parsed = await parseWithRawText(ocrText);
-      setResult(parsed);
-      setDoneMessage('抽出が完了しました。内容を確認してください。');
+      const best = chooseBestCandidate();
+      const usableBest = best && isUsableQuality(best.quality, best.source) ? best : null;
+
+      if (usableBest) {
+        setResult(usableBest.parsed);
+        setDoneMessage('抽出が完了しました。内容を確認してください。');
+        setQualityWarning('');
+      } else {
+        setResult(emptyParseResponse());
+        setDoneMessage('');
+        setQualityWarning(
+          'PDFの文字認識が不安定です。プレビューを確認し、必要に応じて手入力してください。'
+        );
+      }
       setStatusText('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。');
       setStatusText('');
       setDoneMessage('');
+      setQualityWarning('');
     } finally {
       setLoading(false);
     }
@@ -525,6 +648,7 @@ export function ToolClient() {
     setError('');
     setStatusText('');
     setDoneMessage('');
+    setQualityWarning('');
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -584,6 +708,7 @@ export function ToolClient() {
 
       {error ? <div className="alert alert-error">{error}</div> : null}
       {doneMessage ? <div className="alert alert-success">{doneMessage}</div> : null}
+      {qualityWarning ? <div className="alert">{qualityWarning}</div> : null}
 
       {result ? (
         <section className="result-section" ref={resultRef}>

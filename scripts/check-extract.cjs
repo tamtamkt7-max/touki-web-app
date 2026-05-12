@@ -200,6 +200,26 @@ const cases = [
       owner: '中村七郎',
       ownersHistoryIncludes: ['中村七郎']
     }
+  },
+  {
+    name: 'OCR崩れの英数字ノイズを誤抽出しない',
+    text: `
+表題部
+所在 Pts HiR * 44 8 FIRREOR EROTHT
+地番 FOBRX sqagsiz
+権利部
+甲区
+順位番号 1
+原因 所有権保存 昭和44年受付第1234号
+所有者 所有権保存 昭和44年受付第1234号
+`,
+    expected: {
+      location: '',
+      number: '',
+      area: '',
+      buildingArea: '',
+      owner: ''
+    }
   }
 ];
 
