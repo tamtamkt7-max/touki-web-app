@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import Tesseract from 'tesseract.js';
+import { normalizeOcrTextForExtraction } from '@/lib/extract';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -684,12 +685,17 @@ export function ToolClient() {
 
     try {
       const candidates: TextCandidate[] = [];
-      const addCandidate = (source: TextCandidate['source'], rawText: string, parsed: ParseResponse) => {
+      const addCandidate = (
+        source: TextCandidate['source'],
+        rawText: string,
+        parsed: ParseResponse,
+        qualityText = rawText
+      ) => {
         candidates.push({
           source,
           rawText,
           parsed,
-          quality: scoreTextQuality(rawText)
+          quality: scoreTextQuality(qualityText)
         });
       };
       const chooseBestCandidate = () =>
@@ -721,8 +727,22 @@ export function ToolClient() {
 
         if (hasEnoughText(ocrResult.text)) {
           setStatusText('読み取った内容を整理しています…');
-          const parsed = await parseWithRawText(ocrResult.text);
-          addCandidate(ocrResult.source, ocrResult.text, parsed);
+          const normalizedExtractionText = normalizeOcrTextForExtraction(ocrResult.text);
+          const parseText = hasEnoughText(normalizedExtractionText)
+            ? normalizedExtractionText
+            : ocrResult.text;
+          const parsed = await parseWithRawText(parseText);
+          addCandidate(ocrResult.source, ocrResult.text, parsed, parseText);
+
+          const previewQuality = scoreTextQuality(ocrResult.text);
+          const normalizedQuality = scoreTextQuality(parseText);
+          console.debug('touki ocr normalization', {
+            source: ocrResult.source,
+            previewScore: Math.round(previewQuality.score),
+            normalizedScore: Math.round(normalizedQuality.score),
+            previewLabels: previewQuality.labelCount,
+            normalizedLabels: normalizedQuality.labelCount
+          });
         }
       }
 
@@ -741,7 +761,7 @@ export function ToolClient() {
         setResult({
           fields: {
             ...usableBest.parsed.fields,
-            raw: usableBest.parsed.fields.raw || usableBest.rawText || previewText
+            raw: usableBest.rawText || usableBest.parsed.fields.raw || previewText
           }
         });
         setDoneMessage('抽出が完了しました。内容を確認してください。');

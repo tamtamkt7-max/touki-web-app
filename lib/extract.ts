@@ -19,6 +19,7 @@ type Sections = {
 type KoukuEntry = {
   startIndex: number;
   lines: string[];
+  purpose: string;
   cause: string;
   owners: string[];
   invalid: boolean;
@@ -47,6 +48,29 @@ const LABEL_NORMALIZERS: Array<[RegExp, string]> = [
 
 const TITLE_LABELS = ['所在', '地番', '地積', '床面積', '建物面積'];
 
+const OCR_LABEL_NORMALIZERS: Array<[RegExp, string]> = [
+  [/所\s*有\s*權/g, '所有権'],
+  [/所\s*有\s*権\s*移\s*転/g, '所有権移転'],
+  [/所\s*有\s*権/g, '所有権'],
+  [/権\s*利\s*者\s*そ\s*の\s*他\s*の\s*事\s*項/g, '権利者その他事項'],
+  [/権\s*利\s*者/g, '権利者'],
+  [/共\s*有\s*者/g, '共有者'],
+  [/原\s*因/g, '原因'],
+  [/順\s*位\s*番\s*号/g, '順位番号'],
+  [/受\s*付\s*年\s*月\s*日/g, '受付年月日'],
+  [/受\s*付\s*番\s*号/g, '受付番号'],
+  [/登\s*記\s*の\s*目\s*的/g, '登記の目的'],
+  [/所\s*在/g, '所在'],
+  [/地\s*番/g, '地番'],
+  [/地\s*積/g, '地積'],
+  [/床\s*面\s*積/g, '床面積'],
+  [/建\s*物\s*面\s*積/g, '建物面積'],
+  [/表\s*題\s*部/g, '表題部'],
+  [/権\s*利\s*部/g, '権利部'],
+  [/甲\s*[区區]/g, '甲区'],
+  [/乙\s*[区區]/g, '乙区']
+];
+
 function cleanValue(value: string) {
   return value
     .replace(/[|｜]/g, ' ')
@@ -57,8 +81,42 @@ function cleanValue(value: string) {
     .trim();
 }
 
-function normalizeText(text: string) {
+export function normalizeOcrTextForExtraction(text: string) {
   let v = text
+    .replace(/\r/g, '\n')
+    .replace(/\u3000/g, ' ')
+    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
+    .replace(/[㎡m²㎥]/g, '㎡')
+    .replace(/[｜|]/g, ' ')
+    .replace(/\s{2,}/g, ' ');
+
+  for (const [pattern, replacement] of OCR_LABEL_NORMALIZERS) {
+    v = v.replace(pattern, replacement);
+  }
+
+  v = v
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/([一-龠ぁ-んァ-ン々〆ヶ])\s+(?=[一-龠ぁ-んァ-ン々〆ヶ])/g, '$1')
+        .replace(/([一-龠ぁ-んァ-ン々〆ヶ])\s+(?=\d)/g, '$1')
+        .replace(/(\d)\s+(?=\d)/g, '$1')
+        .replace(/(\d)\s+(?=[年月日番号])/g, '$1')
+        .replace(/([年月日番号])\s+(?=\d)/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+    )
+    .join('\n');
+
+  for (const [pattern, replacement] of OCR_LABEL_NORMALIZERS) {
+    v = v.replace(pattern, replacement);
+  }
+
+  return v.replace(/\n{2,}/g, '\n').trim();
+}
+
+function normalizeText(text: string) {
+  let v = normalizeOcrTextForExtraction(text)
     .replace(/\r/g, '\n')
     .replace(/\u3000/g, ' ')
     .replace(/[ \t]+/g, ' ')
@@ -366,6 +424,15 @@ function extractCause(lines: string[]) {
   return event ? cleanValue(event) : '';
 }
 
+function extractPurpose(lines: string[]) {
+  const purposeLine = lines.find((line) => /所有権保存|所有権移転|所有権/.test(line));
+  if (!purposeLine) return '';
+
+  const cleaned = cleanValue(purposeLine.replace(/^登記の目的\s*[:：]?/, ''));
+  if (/原因|受付|順位番号|権利者|所有者/.test(cleaned)) return '';
+  return cleaned;
+}
+
 function looksLikeCorp(name: string) {
   return /(株式会社|有限会社|合同会社|一般社団法人|財団法人|医療法人|学校法人|銀行|信託|組合|公社|協同組合)/.test(name);
 }
@@ -384,12 +451,12 @@ function extractOwnerCandidates(lines: string[]) {
   for (const line of lines) {
     if (!isPlausibleText(line)) continue;
 
-    if (/所有者|権利者その他事項|権利者|氏名/.test(line)) {
-      const value = line.replace(/^(所有者|権利者その他事項|権利者|氏名)\s*[:：]?/, '').trim();
+    if (/所有者|権利者その他事項|権利者|共有者|氏名/.test(line)) {
+      const value = line.replace(/^(所有者|権利者その他事項|権利者|共有者|氏名)\s*[:：]?/, '').trim();
       if (value) raw.push(value);
     }
 
-    const inline = [...line.matchAll(/(?:所有者|権利者)\s*[:：]?\s*([^\s]+)/g)].map((m) => m[1]);
+    const inline = [...line.matchAll(/(?:所有者|権利者|共有者)\s*[:：]?\s*([^\s]+)/g)].map((m) => m[1]);
     raw.push(...inline);
   }
 
@@ -440,6 +507,7 @@ function parseKoukuEntries(koukuLines: string[]) {
   }
 
   return blocks.map<KoukuEntry>((block) => {
+    const purpose = extractPurpose(block.lines);
     const cause = extractCause(block.lines);
     const owners = extractOwnerCandidates(block.lines);
     const invalid = isInvalidKoukuEntry(cause, block.lines);
@@ -448,6 +516,7 @@ function parseKoukuEntries(koukuLines: string[]) {
     return {
       startIndex: block.startIndex,
       lines: block.lines,
+      purpose,
       cause,
       owners,
       invalid,
@@ -472,6 +541,7 @@ function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
     .filter((e) => e.ownershipEvent)
     .map((e) => {
       const parts: string[] = [];
+      if (e.purpose) parts.push(e.purpose);
       if (e.cause) parts.push(`原因: ${e.cause}`);
       if (e.owners.length > 0) parts.push(`権利者: ${e.owners.join(' / ')}`);
       const merged = parts.join(' | ');
@@ -490,8 +560,8 @@ function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
 
 function fallbackOwners(allLines: string[], ownersHistory: string[]) {
   const lineBased = allLines
-    .filter((line) => /所有者|権利者/.test(line))
-    .map((line) => line.replace(/^(所有者|権利者その他事項|権利者)\s*[:：]?/, '').trim())
+    .filter((line) => /所有者|権利者|共有者/.test(line))
+    .map((line) => line.replace(/^(所有者|権利者その他事項|権利者|共有者)\s*[:：]?/, '').trim())
     .map(safeOwner)
     .filter(Boolean);
 

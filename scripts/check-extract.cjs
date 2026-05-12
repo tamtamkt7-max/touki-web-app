@@ -221,6 +221,31 @@ const cases = [
       owner: '',
       rawIncludes: ['FIRREOR EROTHT', '所有権保存']
     }
+  },
+  {
+    name: 'OCRの1文字空白崩れから安全に抽出する',
+    text: `
+表 題 部
+所 在 福 島 県 郡 山 市 駅 前 一 丁 目
+地 番 53-3
+地 積 101.20㎡
+
+権 利 部
+甲 区
+順 位 番 号 1
+所 有 権 移 転
+原 因 令 和 2 年 1 月 3 0 日 売 買
+権 利 者 田 村 和 也
+`,
+    expected: {
+      location: '福島県郡山市駅前一丁目',
+      number: '53-3',
+      area: '101.20㎡',
+      buildingArea: '',
+      owner: '田村和也',
+      ownersHistoryIncludes: ['所有権移転', '原因: 令和2年1月30日売買', '田村和也'],
+      ownersHistoryExcludes: ['所有権移転 / 原因']
+    }
   }
 ];
 
