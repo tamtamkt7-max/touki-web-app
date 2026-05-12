@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test:extract": "node scripts/check-extract.cjs",
     "start": "next start",
     "lint": "next lint"
   },
