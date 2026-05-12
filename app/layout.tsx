@@ -1,6 +1,5 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import Script from 'next/script';
 
 export const metadata: Metadata = {
   title: '登記サクッと変換',
@@ -15,14 +14,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body>
-        <Script
-          id="adsense-script"
+      <head>
+        <script
           async
-          strategy="afterInteractive"
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5461809032953003"
           crossOrigin="anonymous"
         />
+      </head>
+      <body>
         {children}
       </body>
     </html>
