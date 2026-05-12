@@ -246,6 +246,32 @@ const cases = [
       ownersHistoryIncludes: ['所有権移転', '原因: 令和2年1月30日売買', '田村和也'],
       ownersHistoryExcludes: ['所有権移転 / 原因']
     }
+  },
+  {
+    name: 'OCR誤認識を補正して履歴と法人所有者を拾う',
+    text: `
+表 題 部
+所 在 福 島 県 郡 山 市 大 槻 町 字 葉 山 下
+地 番 §3-1
+地 積 88.00㎡
+
+権 利 部
+甲 区
+順 位 番 号 2
+所 有 権 秘 転
+原 因 令 大 2 年 1 月 3 0 日 売 質
+能 利 者 株 式 会 社 ア ー ネ ス ト ワ ン
+共 有 者 田 村 和 也 持 分 2 分 の 1
+`,
+    expected: {
+      location: '福島県郡山市大槻町字葉山下',
+      number: '53-1',
+      area: '88.00㎡',
+      buildingArea: '',
+      owner: '株式会社アーネストワン / 田村和也',
+      ownersHistoryIncludes: ['所有権移転', '原因: 令和2年1月30日売買', '株式会社アーネストワン'],
+      ownersHistoryExcludes: ['原因令和2年1月30日売買']
+    }
   }
 ];
 

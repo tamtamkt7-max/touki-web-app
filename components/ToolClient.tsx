@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import Tesseract from 'tesseract.js';
-import { normalizeOcrTextForExtraction } from '@/lib/extract';
+import { extractToukiFields, normalizeOcrTextForExtraction } from '@/lib/extract';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -21,7 +21,13 @@ type ParseResponse = {
   fields: ExtractedFields;
 };
 
-type TextSource = 'text-layer' | 'server' | 'ocr-original' | 'ocr-light' | 'ocr-binary';
+type TextSource =
+  | 'text-layer'
+  | 'server'
+  | 'ocr-original'
+  | 'ocr-light'
+  | 'ocr-binary'
+  | 'ocr-normalized';
 
 type TextQuality = {
   score: number;
@@ -58,6 +64,7 @@ type OcrVariantDiagnostic = {
   label: string;
   text: string;
   quality: TextQuality;
+  extracted?: ExtractedFields;
   imageDataUrl?: string;
 };
 
@@ -66,6 +73,7 @@ type OcrDiagnostics = {
   adoptedSource?: TextSource;
   normalizedText?: string;
   normalizedQuality?: TextQuality;
+  normalizedExtracted?: ExtractedFields;
   extractionAccepted?: boolean;
 };
 
@@ -208,6 +216,8 @@ function sourceLabel(source: TextSource) {
       return 'OCR light';
     case 'ocr-binary':
       return 'OCR binary';
+    case 'ocr-normalized':
+      return 'OCR normalized';
   }
 }
 
@@ -222,6 +232,92 @@ function formatPercent(value: number) {
 function clipDiagnosticText(text = '') {
   const limit = 5000;
   return text.length > limit ? `${text.slice(0, limit)}\n...（以下省略）` : text;
+}
+
+function localParseResponse(text: string, rawText = text): ParseResponse {
+  const fields = extractToukiFields(text);
+  return {
+    fields: {
+      ...fields,
+      raw: rawText
+    }
+  };
+}
+
+function hasExtractedValue(fields: ExtractedFields) {
+  return Boolean(
+    fields.location ||
+      fields.number ||
+      fields.area ||
+      fields.buildingArea ||
+      fields.owner ||
+      (fields.ownersHistory && fields.ownersHistory.length > 0)
+  );
+}
+
+function fieldCompleteness(fields: ExtractedFields) {
+  return [
+    fields.location,
+    fields.number,
+    fields.area,
+    fields.buildingArea,
+    fields.owner,
+    fields.ownersHistory && fields.ownersHistory.length > 0 ? 'history' : ''
+  ].filter(Boolean).length;
+}
+
+function scoreFieldCandidate(candidate: TextCandidate, field: keyof ExtractedFields) {
+  const value = candidate.parsed.fields[field];
+  if (Array.isArray(value)) return value.length * 12 + candidate.quality.labelCount * 2;
+  if (!value) return -Infinity;
+
+  let score = candidate.quality.labelCount * 5 + candidate.quality.japaneseRatio * 20 - candidate.quality.noiseRatio * 10;
+  if (candidate.source === 'ocr-normalized') score += 8;
+  if (field === 'number' && /^[0-9]{1,5}(?:番[0-9-]{0,8}|-[0-9]{1,5})$/.test(value)) score += 40;
+  if ((field === 'area' || field === 'buildingArea') && /^[0-9]+(?:\.[0-9]+)?㎡$/.test(value)) score += 35;
+  if (field === 'owner') score += /株式会社|有限会社|合同会社|[一-龠]{2,}/.test(value) ? 35 : -30;
+  if (field === 'location') score += /[都道府県市区町村]/.test(value) ? 35 : -20;
+  return score;
+}
+
+function chooseField(candidates: TextCandidate[], field: keyof ExtractedFields) {
+  return [...candidates]
+    .filter((candidate) => {
+      const value = candidate.parsed.fields[field];
+      return Array.isArray(value) ? value.length > 0 : Boolean(value);
+    })
+    .sort((a, b) => scoreFieldCandidate(b, field) - scoreFieldCandidate(a, field))[0];
+}
+
+function mergeFieldCandidates(candidates: TextCandidate[], previewText: string): ParseResponse {
+  const location = chooseField(candidates, 'location')?.parsed.fields.location || '';
+  const number = chooseField(candidates, 'number')?.parsed.fields.number || '';
+  const area = chooseField(candidates, 'area')?.parsed.fields.area || '';
+  const buildingArea = chooseField(candidates, 'buildingArea')?.parsed.fields.buildingArea || '';
+  const owner = chooseField(candidates, 'owner')?.parsed.fields.owner || '';
+  const historyCandidate = chooseField(candidates, 'ownersHistory');
+
+  return {
+    fields: {
+      location,
+      number,
+      area,
+      buildingArea,
+      owner,
+      ownersHistory: historyCandidate?.parsed.fields.ownersHistory || [],
+      raw: previewText
+    }
+  };
+}
+
+function formatExtractedSummary(fields?: ExtractedFields) {
+  if (!fields) return '抽出: 未実行';
+  return [
+    `location: ${fields.location || '未検出'}`,
+    `number: ${fields.number || '未検出'}`,
+    `owner: ${fields.owner || '未検出'}`,
+    `history: ${fields.ownersHistory?.length || 0}件`
+  ].join(' / ');
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -800,15 +896,24 @@ export function ToolClient() {
           const parseText = hasEnoughText(normalizedExtractionText)
             ? normalizedExtractionText
             : ocrResult.text;
-          const parsed = await parseWithRawText(parseText);
-          addCandidate(ocrResult.source, ocrResult.text, parsed, parseText);
+          const normalizedParsed = localParseResponse(parseText, ocrResult.text);
+
+          for (const variant of ocrResult.diagnostics.variants) {
+            const normalizedVariantText = normalizeOcrTextForExtraction(variant.text);
+            const variantParsed = localParseResponse(normalizedVariantText, variant.text);
+            variant.extracted = variantParsed.fields;
+            addCandidate(variant.source, variant.text, variantParsed, normalizedVariantText);
+          }
+
+          addCandidate('ocr-normalized', ocrResult.text, normalizedParsed, parseText);
 
           const previewQuality = scoreTextQuality(ocrResult.text);
           const normalizedQuality = scoreTextQuality(parseText);
           latestOcrDiagnostics = {
             ...ocrResult.diagnostics,
             normalizedText: parseText,
-            normalizedQuality
+            normalizedQuality,
+            normalizedExtracted: normalizedParsed.fields
           };
           console.debug('touki ocr normalization', {
             source: ocrResult.source,
@@ -824,11 +929,13 @@ export function ToolClient() {
       const usableBest = best && isUsableQuality(best.quality, best.source) ? best : null;
       const previewBest = choosePreviewCandidate();
       const previewText = previewBest?.rawText || '';
+      const fieldMerged = mergeFieldCandidates(candidates, previewText);
+      const fieldMergedAccepted = hasExtractedValue(fieldMerged.fields);
       const displayCandidate = usableBest || previewBest;
       if (latestOcrDiagnostics) {
         setOcrDiagnostics({
           ...latestOcrDiagnostics,
-          extractionAccepted: Boolean(usableBest),
+          extractionAccepted: Boolean(usableBest || fieldMergedAccepted),
           adoptedSource: displayCandidate?.source || latestOcrDiagnostics.adoptedSource
         });
       } else {
@@ -840,15 +947,19 @@ export function ToolClient() {
           : ''
       );
 
-      if (usableBest) {
+      if (usableBest || fieldMergedAccepted) {
+        const fields = usableBest
+          ? {
+              ...usableBest.parsed.fields,
+              ...fieldMerged.fields,
+              raw: usableBest.rawText || fieldMerged.fields.raw || usableBest.parsed.fields.raw || previewText
+            }
+          : fieldMerged.fields;
         setResult({
-          fields: {
-            ...usableBest.parsed.fields,
-            raw: usableBest.rawText || usableBest.parsed.fields.raw || previewText
-          }
+          fields
         });
         setDoneMessage('抽出が完了しました。内容を確認してください。');
-        setQualityWarning('');
+        setQualityWarning(usableBest ? '' : 'PDFの文字認識が不安定です。プレビューを確認し、必要に応じて手入力してください。');
       } else {
         setResult(emptyParseResponse(previewText));
         setDoneMessage('');
@@ -1043,6 +1154,7 @@ export function ToolClient() {
                           {formatPercent(variant.quality.japaneseRatio)} / ラベル {variant.quality.labelCount} / ノイズ率{' '}
                           {formatPercent(variant.quality.noiseRatio)}
                         </div>
+                        <div className="muted">{formatExtractedSummary(variant.extracted)}</div>
                         <textarea
                           readOnly
                           value={clipDiagnosticText(variant.text)}
@@ -1054,6 +1166,7 @@ export function ToolClient() {
 
                     <section style={{ display: 'grid', gap: 8 }}>
                       <div className="muted">normalizedExtractionText</div>
+                      <div className="muted">{formatExtractedSummary(ocrDiagnostics.normalizedExtracted)}</div>
                       <textarea
                         readOnly
                         value={clipDiagnosticText(ocrDiagnostics.normalizedText || '')}

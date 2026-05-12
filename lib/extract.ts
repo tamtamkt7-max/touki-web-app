@@ -50,8 +50,14 @@ const TITLE_LABELS = ['所在', '地番', '地積', '床面積', '建物面積']
 
 const OCR_LABEL_NORMALIZERS: Array<[RegExp, string]> = [
   [/所\s*有\s*權/g, '所有権'],
+  [/所\s*有\s*権\s*秘\s*転/g, '所有権移転'],
+  [/所有権秘転/g, '所有権移転'],
   [/所\s*有\s*権\s*移\s*転/g, '所有権移転'],
   [/所\s*有\s*権/g, '所有権'],
+  [/所\s*有\s*省/g, '所有者'],
+  [/所有省/g, '所有者'],
+  [/能\s*利\s*者/g, '権利者'],
+  [/能利者/g, '権利者'],
   [/権\s*利\s*者\s*そ\s*の\s*他\s*の\s*事\s*項/g, '権利者その他事項'],
   [/権\s*利\s*者/g, '権利者'],
   [/共\s*有\s*者/g, '共有者'],
@@ -60,6 +66,10 @@ const OCR_LABEL_NORMALIZERS: Array<[RegExp, string]> = [
   [/受\s*付\s*年\s*月\s*日/g, '受付年月日'],
   [/受\s*付\s*番\s*号/g, '受付番号'],
   [/登\s*記\s*の\s*目\s*的/g, '登記の目的'],
+  [/抵\s*当\s*挫/g, '抵当権'],
+  [/地\s*図\s*帯\s*[呈号]/g, '地図番号'],
+  [/令\s*大/g, '令和'],
+  [/売\s*[質買]|沈\s*質/g, '売買'],
   [/所\s*在/g, '所在'],
   [/地\s*番/g, '地番'],
   [/地\s*積/g, '地積'],
@@ -88,6 +98,10 @@ export function normalizeOcrTextForExtraction(text: string) {
     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
     .replace(/[㎡m²㎥]/g, '㎡')
     .replace(/[｜|]/g, ' ')
+    .replace(/[§ＳS](?=\d)/g, '5')
+    .replace(/(?<=\d)[§ＳS](?=\d|$)/g, '5')
+    .replace(/(\d)\s*[=:]\s*(\d)/g, '$1-$2')
+    .replace(/(\d+)\)/g, '$1')
     .replace(/\s{2,}/g, ' ');
 
   for (const [pattern, replacement] of OCR_LABEL_NORMALIZERS) {
@@ -98,8 +112,8 @@ export function normalizeOcrTextForExtraction(text: string) {
     .split('\n')
     .map((line) =>
       line
-        .replace(/([一-龠ぁ-んァ-ン々〆ヶ])\s+(?=[一-龠ぁ-んァ-ン々〆ヶ])/g, '$1')
-        .replace(/([一-龠ぁ-んァ-ン々〆ヶ])\s+(?=\d)/g, '$1')
+        .replace(/([一-龠ぁ-んァ-ンー々〆ヶ])\s+(?=[一-龠ぁ-んァ-ンー々〆ヶ])/g, '$1')
+        .replace(/([一-龠ぁ-んァ-ンー々〆ヶ])\s+(?=\d)/g, '$1')
         .replace(/(\d)\s+(?=\d)/g, '$1')
         .replace(/(\d)\s+(?=[年月日番号])/g, '$1')
         .replace(/([年月日番号])\s+(?=\d)/g, '$1')
@@ -213,7 +227,7 @@ function safeLocation(value: string) {
 function safeNumber(value: string) {
   const cleaned = cleanValue(value);
   if (!cleaned || looksLikeOcrGarbage(cleaned)) return '';
-  const m = cleaned.match(/^([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5})$/);
+  const m = cleaned.match(/^([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5}|[0-9]{1,5})$/);
   return m ? m[1] : '';
 }
 
@@ -223,8 +237,16 @@ function safeArea(value: string) {
   return m ? `${m[1]}㎡` : '';
 }
 
+function stripOwnerAnnotation(value: string) {
+  return cleanValue(value)
+    .replace(/持分.*$/, '')
+    .replace(/住所.*$/, '')
+    .replace(/受付.*$/, '')
+    .trim();
+}
+
 function safeOwner(value: string) {
-  const cleaned = cleanValue(value);
+  const cleaned = stripOwnerAnnotation(value);
   if (!cleaned) return '';
   if (!isPlausibleText(cleaned)) return '';
   if (hasFieldContamination(cleaned)) return '';
@@ -365,7 +387,7 @@ function extractNumberFromTitle(title: string[], all: string[]) {
 
   for (const c of candidates) {
     if (!c) continue;
-    const m = c.match(/([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5})/);
+    const m = c.match(/([0-9]{1,5}番[0-9\-]{0,8}|[0-9]{1,5}-[0-9]{1,5}|[0-9]{1,5})/);
     if (m) return safeNumber(m[1]);
   }
 
@@ -460,12 +482,14 @@ function extractOwnerCandidates(lines: string[]) {
     raw.push(...inline);
   }
 
-  return unique(raw)
+  const cleaned = unique(raw)
     .map(cleanValue)
     .map(safeOwner)
     .filter(Boolean)
     .filter((v) => !/^(持分|住所|受付|順位|原因|記載)/.test(v))
     .filter((v) => looksLikeCorp(v) || looksLikePerson(v));
+
+  return unique(cleaned);
 }
 
 function isInvalidKoukuEntry(cause: string, lines: string[]) {
