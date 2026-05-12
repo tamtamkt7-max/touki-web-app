@@ -27,6 +27,7 @@ type TextQuality = {
   score: number;
   labelCount: number;
   japaneseRatio: number;
+  noiseRatio: number;
   garbageLineCount: number;
   length: number;
   lineCount: number;
@@ -49,6 +50,23 @@ type OcrTextResult = {
   text: string;
   source: Extract<TextSource, 'ocr-original' | 'ocr-light' | 'ocr-binary'>;
   quality: TextQuality;
+  diagnostics: OcrDiagnostics;
+};
+
+type OcrVariantDiagnostic = {
+  source: Extract<TextSource, 'ocr-original' | 'ocr-light' | 'ocr-binary'>;
+  label: string;
+  text: string;
+  quality: TextQuality;
+  imageDataUrl?: string;
+};
+
+type OcrDiagnostics = {
+  variants: OcrVariantDiagnostic[];
+  adoptedSource?: TextSource;
+  normalizedText?: string;
+  normalizedQuality?: TextQuality;
+  extractionAccepted?: boolean;
 };
 
 function hasEnoughText(text: string) {
@@ -100,6 +118,7 @@ function scoreTextQuality(text: string): TextQuality {
   const japaneseRatio = length > 0 ? japaneseCount / length : 0;
   const asciiRatio = length > 0 ? asciiCount / length : 0;
   const symbolRatio = length > 0 ? symbolCount / length : 0;
+  const noiseRatio = length > 0 ? (asciiCount + symbolCount) / length : 0;
   const score =
     Math.min(length / 6, 45) +
     japaneseRatio * 80 +
@@ -109,7 +128,15 @@ function scoreTextQuality(text: string): TextQuality {
     weirdTokenCount * 8 -
     garbageLineCount * 15;
 
-  return { score, labelCount, japaneseRatio, garbageLineCount, length, lineCount: lines.length };
+  return {
+    score,
+    labelCount,
+    japaneseRatio,
+    noiseRatio,
+    garbageLineCount,
+    length,
+    lineCount: lines.length
+  };
 }
 
 function isUsableQuality(quality: TextQuality, source: TextSource) {
@@ -182,6 +209,19 @@ function sourceLabel(source: TextSource) {
     case 'ocr-binary':
       return 'OCR binary';
   }
+}
+
+function formatScore(value: number) {
+  return String(Math.round(value));
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function clipDiagnosticText(text = '') {
+  const limit = 5000;
+  return text.length > limit ? `${text.slice(0, limit)}\n...（以下省略）` : text;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -517,6 +557,12 @@ async function recognizeImage(
 async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): Promise<OcrTextResult> {
   const pages = await renderPdfPages(file);
   let fullText = '';
+  const variantTexts: Record<OcrTextResult['source'], string> = {
+    'ocr-original': '',
+    'ocr-light': '',
+    'ocr-binary': ''
+  };
+  const firstPageImages: Partial<Record<OcrTextResult['source'], string>> = {};
   const sourceCounts: Record<OcrTextResult['source'], number> = {
     'ocr-original': 0,
     'ocr-light': 0,
@@ -550,11 +596,17 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
 
     const results = [];
     for (const variant of variants) {
+      const imageDataUrl = variant.canvas.toDataURL('image/png');
+      if (!firstPageImages[variant.source]) {
+        firstPageImages[variant.source] = imageDataUrl;
+      }
+
       const text = await recognizeImage(
-        variant.canvas.toDataURL('image/png'),
+        imageDataUrl,
         onStatus,
         variant.label
       );
+      variantTexts[variant.source] += `${text}\n`;
       results.push({
         source: variant.source,
         text,
@@ -571,10 +623,24 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
     (a, b) => b[1] - a[1]
   )[0][0];
 
+  const diagnostics: OcrDiagnostics = {
+    variants: (Object.keys(variantTexts) as OcrTextResult['source'][]).map((source) => ({
+      source,
+      label: sourceLabel(source),
+      text: variantTexts[source].trim(),
+      quality: scoreTextQuality(variantTexts[source]),
+      imageDataUrl: firstPageImages[source]
+    })),
+    adoptedSource: source
+  };
+
+  console.debug('touki ocr image data urls', firstPageImages);
+
   return {
     text: fullText.trim(),
     source,
-    quality: scoreTextQuality(fullText)
+    quality: scoreTextQuality(fullText),
+    diagnostics
   };
 }
 
@@ -635,6 +701,7 @@ export function ToolClient() {
   const [doneMessage, setDoneMessage] = useState('');
   const [qualityWarning, setQualityWarning] = useState('');
   const [readMeta, setReadMeta] = useState('');
+  const [ocrDiagnostics, setOcrDiagnostics] = useState<OcrDiagnostics | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLElement | null>(null);
 
@@ -681,10 +748,12 @@ export function ToolClient() {
     setDoneMessage('');
     setQualityWarning('');
     setReadMeta('');
+    setOcrDiagnostics(null);
     setStatusText('PDFの文字を確認しています…');
 
     try {
       const candidates: TextCandidate[] = [];
+      let latestOcrDiagnostics: OcrDiagnostics | null = null;
       const addCandidate = (
         source: TextCandidate['source'],
         rawText: string,
@@ -736,6 +805,11 @@ export function ToolClient() {
 
           const previewQuality = scoreTextQuality(ocrResult.text);
           const normalizedQuality = scoreTextQuality(parseText);
+          latestOcrDiagnostics = {
+            ...ocrResult.diagnostics,
+            normalizedText: parseText,
+            normalizedQuality
+          };
           console.debug('touki ocr normalization', {
             source: ocrResult.source,
             previewScore: Math.round(previewQuality.score),
@@ -751,6 +825,15 @@ export function ToolClient() {
       const previewBest = choosePreviewCandidate();
       const previewText = previewBest?.rawText || '';
       const displayCandidate = usableBest || previewBest;
+      if (latestOcrDiagnostics) {
+        setOcrDiagnostics({
+          ...latestOcrDiagnostics,
+          extractionAccepted: Boolean(usableBest),
+          adoptedSource: displayCandidate?.source || latestOcrDiagnostics.adoptedSource
+        });
+      } else {
+        setOcrDiagnostics(null);
+      }
       setReadMeta(
         displayCandidate
           ? `読み取り方法: ${sourceLabel(displayCandidate.source)} / 品質スコア: ${Math.round(displayCandidate.quality.score)}`
@@ -780,6 +863,7 @@ export function ToolClient() {
       setDoneMessage('');
       setQualityWarning('');
       setReadMeta('');
+      setOcrDiagnostics(null);
     } finally {
       setLoading(false);
     }
@@ -819,6 +903,7 @@ export function ToolClient() {
     setDoneMessage('');
     setQualityWarning('');
     setReadMeta('');
+    setOcrDiagnostics(null);
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -935,6 +1020,50 @@ export function ToolClient() {
                 value={result.fields.raw || ''}
                 className="preview-textarea"
               />
+
+              {ocrDiagnostics ? (
+                <details style={{ marginTop: 16 }}>
+                  <summary className="muted" style={{ cursor: 'pointer', fontWeight: 700 }}>
+                    読み取り診断を表示
+                  </summary>
+
+                  <div style={{ display: 'grid', gap: 14, marginTop: 12 }}>
+                    <div className="muted">
+                      採用: {ocrDiagnostics.adoptedSource ? sourceLabel(ocrDiagnostics.adoptedSource) : '未採用'} / 抽出採用:{' '}
+                      {ocrDiagnostics.extractionAccepted ? 'あり' : 'なし'}
+                      {ocrDiagnostics.normalizedQuality
+                        ? ` / 正規化後スコア: ${formatScore(ocrDiagnostics.normalizedQuality.score)}`
+                        : ''}
+                    </div>
+
+                    {ocrDiagnostics.variants.map((variant) => (
+                      <section key={variant.source} style={{ display: 'grid', gap: 8 }}>
+                        <div className="muted">
+                          {variant.label}: score {formatScore(variant.quality.score)} / 日本語率{' '}
+                          {formatPercent(variant.quality.japaneseRatio)} / ラベル {variant.quality.labelCount} / ノイズ率{' '}
+                          {formatPercent(variant.quality.noiseRatio)}
+                        </div>
+                        <textarea
+                          readOnly
+                          value={clipDiagnosticText(variant.text)}
+                          className="preview-textarea"
+                          style={{ minHeight: 160 }}
+                        />
+                      </section>
+                    ))}
+
+                    <section style={{ display: 'grid', gap: 8 }}>
+                      <div className="muted">normalizedExtractionText</div>
+                      <textarea
+                        readOnly
+                        value={clipDiagnosticText(ocrDiagnostics.normalizedText || '')}
+                        className="preview-textarea"
+                        style={{ minHeight: 180 }}
+                      />
+                    </section>
+                  </div>
+                </details>
+              ) : null}
             </article>
           </div>
 
