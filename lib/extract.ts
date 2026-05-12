@@ -88,7 +88,7 @@ function unique(values: string[]) {
 function isNoiseLine(line: string) {
   const cleaned = cleanValue(line);
   if (!cleaned) return true;
-  if (/^[\W_]+$/.test(cleaned)) return true;
+  if (!/[一-龠ぁ-んァ-ンa-zA-Z0-9]/.test(cleaned)) return true;
   if (/^[^一-龠ぁ-んァ-ンa-zA-Z0-9]+$/.test(cleaned)) return true;
   if (/(.)\1{6,}/.test(cleaned)) return true;
   if (/^[a-zA-Z0-9]{1,2}$/.test(cleaned)) return true;
@@ -265,9 +265,11 @@ function isEntryStart(line: string) {
 }
 
 function extractCause(lines: string[]) {
-  const joined = lines.join(' ');
-  const direct = joined.match(/原因\s*[:：]?\s*([^\n]+)/);
-  if (direct?.[1]) return cleanValue(direct[1]);
+  const directLine = lines.find((line) => /^原因\b|^原因\s*[:：]?/.test(line));
+  if (directLine) {
+    const direct = directLine.replace(/^原因\s*[:：]?/, '');
+    if (direct) return cleanValue(direct);
+  }
 
   const event = lines.find((line) => /所有権|移転|相続|売買|贈与|抹消|変更|更正|仮登記/.test(line));
   return event ? cleanValue(event) : '';
