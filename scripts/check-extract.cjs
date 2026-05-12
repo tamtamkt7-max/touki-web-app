@@ -218,7 +218,8 @@ const cases = [
       number: '',
       area: '',
       buildingArea: '',
-      owner: ''
+      owner: '',
+      rawIncludes: ['FIRREOR EROTHT', '所有権保存']
     }
   }
 ];
@@ -261,6 +262,7 @@ for (const testCase of cases) {
   assertEqual(errors, 'owner', actual.owner, expected.owner);
   assertIncludes(errors, 'ownersHistory', actual.ownersHistory, expected.ownersHistoryIncludes);
   assertExcludes(errors, 'ownersHistory', actual.ownersHistory, expected.ownersHistoryExcludes);
+  assertIncludes(errors, 'raw', [actual.raw], expected.rawIncludes);
 
   if (errors.length > 0) {
     failed += 1;

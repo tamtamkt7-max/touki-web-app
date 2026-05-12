@@ -26,6 +26,7 @@ type TextQuality = {
   japaneseRatio: number;
   garbageLineCount: number;
   length: number;
+  lineCount: number;
 };
 
 type TextCandidate = {
@@ -93,7 +94,7 @@ function scoreTextQuality(text: string): TextQuality {
     weirdTokenCount * 8 -
     garbageLineCount * 15;
 
-  return { score, labelCount, japaneseRatio, garbageLineCount, length };
+  return { score, labelCount, japaneseRatio, garbageLineCount, length, lineCount: lines.length };
 }
 
 function isUsableQuality(quality: TextQuality, source: TextCandidate['source']) {
@@ -107,11 +108,29 @@ function isUsableQuality(quality: TextQuality, source: TextCandidate['source']) 
   return quality.score >= 45;
 }
 
+function isPreviewableQuality(quality: TextQuality) {
+  if (quality.length < 20) return false;
+  if (quality.lineCount > 0 && quality.garbageLineCount >= Math.max(10, quality.lineCount * 0.8)) {
+    return false;
+  }
+
+  return quality.score >= 5 || quality.labelCount >= 1 || quality.japaneseRatio >= 0.05;
+}
+
 function isStrongQuality(quality: TextQuality) {
   return quality.score >= 85 && quality.labelCount >= 3 && quality.garbageLineCount <= 2;
 }
 
-function emptyParseResponse(): ParseResponse {
+function previewScore(candidate: TextCandidate) {
+  return (
+    candidate.quality.score +
+    Math.min(candidate.quality.length / 8, 60) +
+    candidate.quality.labelCount * 12 -
+    candidate.quality.garbageLineCount * 6
+  );
+}
+
+function emptyParseResponse(previewText = ''): ParseResponse {
   return {
     fields: {
       location: '',
@@ -120,7 +139,7 @@ function emptyParseResponse(): ParseResponse {
       buildingArea: '',
       owner: '',
       ownersHistory: [],
-      raw: ''
+      raw: previewText
     }
   };
 }
@@ -563,6 +582,10 @@ export function ToolClient() {
       };
       const chooseBestCandidate = () =>
         [...candidates].sort((a, b) => b.quality.score - a.quality.score)[0];
+      const choosePreviewCandidate = () =>
+        [...candidates]
+          .filter((candidate) => isPreviewableQuality(candidate.quality))
+          .sort((a, b) => previewScore(b) - previewScore(a))[0];
 
       const textLayer = await extractTextLayerFromPdf(file);
 
@@ -593,13 +616,20 @@ export function ToolClient() {
 
       const best = chooseBestCandidate();
       const usableBest = best && isUsableQuality(best.quality, best.source) ? best : null;
+      const previewBest = choosePreviewCandidate();
+      const previewText = previewBest?.rawText || '';
 
       if (usableBest) {
-        setResult(usableBest.parsed);
+        setResult({
+          fields: {
+            ...usableBest.parsed.fields,
+            raw: usableBest.parsed.fields.raw || usableBest.rawText || previewText
+          }
+        });
         setDoneMessage('抽出が完了しました。内容を確認してください。');
         setQualityWarning('');
       } else {
-        setResult(emptyParseResponse());
+        setResult(emptyParseResponse(previewText));
         setDoneMessage('');
         setQualityWarning(
           'PDFの文字認識が不安定です。プレビューを確認し、必要に応じて手入力してください。'
