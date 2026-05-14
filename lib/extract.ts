@@ -21,6 +21,7 @@ type KoukuEntry = {
   startIndex: number;
   lines: string[];
   purpose: string;
+  receipt: string;
   cause: string;
   owners: string[];
   invalid: boolean;
@@ -29,10 +30,11 @@ type KoukuEntry = {
 
 const LABEL_NORMALIZERS: Array<[RegExp, string]> = [
   [/表 題 部|表題都|表題郡|表題部\s*\(.*?\)/g, '表題部'],
+  [/土地の表示|填地の表示|地の表示/g, '土地の表示'],
   [/権 利 部/g, '権利部'],
   [/甲 區|甲區/g, '甲区'],
   [/乙 區|乙區/g, '乙区'],
-  [/所 邊|所辺|所 在|所　在|所在地/g, '所在'],
+  [/所 邊|所辺|所 在|所　在|所在地|所奉|所夫/g, '所在'],
   [/地 番|地盤|地香/g, '地番'],
   [/地 積|地績|地責/g, '地積'],
   [/床 面 積|床面 積/g, '床面積'],
@@ -96,6 +98,8 @@ const OCR_CORRECTION_RULES: OcrCorrectionRule[] = [
   { pattern: /アー\s*ネ\s*ス\s*ト\s*ワン|アーネス\s*トワン|アー\s*ネスト\s*ワン/g, replacement: 'アーネストワン', label: 'アーネストワン補正' },
   { pattern: /波違|濾邊|[sg]辺/g, replacement: '渡辺 OCR候補', label: '渡辺候補補正' },
   { pattern: /所\s*在/g, replacement: '所在', label: '所在空白補正' },
+  { pattern: /所[奉夫]/g, replacement: '所在', label: '所在候補補正' },
+  { pattern: /填地の表示|地の表示/g, replacement: '土地の表示', label: '土地の表示補正' },
   { pattern: /地\s*番/g, replacement: '地番', label: '地番空白補正' },
   { pattern: /地\s*積/g, replacement: '地積', label: '地積空白補正' },
   { pattern: /床\s*面\s*積/g, replacement: '床面積', label: '床面積空白補正' },
@@ -309,7 +313,7 @@ function hasHighSymbolNoise(value: string, maxRatio = 0.12) {
 }
 
 function hasExplicitOcrNoise(value: string) {
-  return /[%@]|ーー|--|B2548|んかも|床攻会社|遷委番号/.test(value);
+  return /[%@]|ーー|--|B2548|んかも|床攻会社|遷委番号|WESS|Mow|BRd Ana|2th22/.test(value);
 }
 
 function safeLocation(value: string) {
@@ -361,6 +365,7 @@ function safeOwner(value: string) {
   if (hasHighSymbolNoise(cleaned, 0.02)) return '';
   if (hasExplicitOcrNoise(cleaned)) return '';
   if (/OCR候補/.test(cleaned)) return '';
+  if (/[0-9]+年[0-9]+月[0-9]+日|令和|平成|昭和|\/|／/.test(cleaned)) return '';
   if (/登記の目的|受付年月日|受付番号|順位番号|権利者その他|原因|売買|所有権移転|所有権一部移転|持分一部移転|抵当権|共同担保/.test(cleaned)) return '';
   if (/会社/.test(cleaned) && !looksLikeCorp(cleaned)) return '';
   if (cleaned.length > 40) return '';
@@ -382,7 +387,7 @@ function withoutExcludedRights(lines: string[]) {
 }
 
 function splitSections(lines: string[]): Sections {
-  const titleIdx = findHeadingIndex(lines, /表題部/);
+  const titleIdx = findHeadingIndex(lines, /表題部|土地の表示|所在|地番|地積/);
   const rightsIdx = findHeadingIndex(lines, /権利部/);
 
   const koukuGlobalIdx = findHeadingIndex(lines, /甲区/);
@@ -436,11 +441,31 @@ function normalizeArea(value: string) {
   return cleaned;
 }
 
+function valueAfterTitleLabel(line: string, label: string) {
+  const idx = line.indexOf(label);
+  if (idx < 0) return '';
+
+  let after = line.slice(idx + label.length);
+  const nextLabelIndexes = [...TITLE_LABELS, '地図番号', '地目', '種類', '構造']
+    .filter((v) => v !== label)
+    .map((v) => after.indexOf(v))
+    .filter((v) => v >= 0);
+  const sectionIndexes = ['権利部', '甲区', '乙区', '共同担保目録', '共同担保', '担保目録']
+    .map((v) => after.indexOf(v))
+    .filter((v) => v >= 0);
+  const cutIndexes = [...nextLabelIndexes, ...sectionIndexes];
+  if (cutIndexes.length > 0) {
+    after = after.slice(0, Math.min(...cutIndexes));
+  }
+
+  return cleanValue(after);
+}
+
 function findLabelValueByPosition(section: string[], label: string, lookAhead = 5) {
   const idx = section.findIndex((line) => line.includes(label));
   if (idx < 0) return '';
 
-  const sameLine = cleanValue(section[idx].replace(label, ''));
+  const sameLine = valueAfterTitleLabel(section[idx], label);
   if (sameLine && isPlausibleText(sameLine)) return sameLine;
 
   const values: string[] = [];
@@ -458,7 +483,7 @@ function extractFromInlineTitleRow(section: string[], label: string) {
   for (const line of section) {
     if (!line.includes(label)) continue;
 
-    const after = cleanValue(line.split(label).slice(1).join(' '));
+    const after = valueAfterTitleLabel(line, label);
     if (after && isPlausibleText(after)) return after;
 
     const cells = line.split(/\s+/).map(cleanValue).filter(Boolean);
@@ -474,7 +499,7 @@ function extractAreaByLabel(section: string[], label: string, lookAhead = 5) {
   const idx = section.findIndex((line) => line.includes(label));
   if (idx < 0) return '';
 
-  const sameLine = safeArea(section[idx].split(label).slice(1).join(' '));
+  const sameLine = safeArea(valueAfterTitleLabel(section[idx], label));
   if (sameLine) return sameLine;
 
   for (let i = idx + 1; i <= Math.min(section.length - 1, idx + lookAhead); i++) {
@@ -575,11 +600,19 @@ function extractCause(lines: string[]) {
   return event ? cleanValue(event) : '';
 }
 
+function extractReceipt(lines: string[]) {
+  const joined = lines.join(' ');
+  const m = joined.match(/(?:受付\s*)?(第\s*[0-9]{1,8}\s*号)/);
+  return m ? cleanValue(m[1].replace(/\s/g, '')) : '';
+}
+
 function extractPurpose(lines: string[]) {
   const purposeLine = lines.find((line) => /所有権保存|所有権移転|所有権一部移転|持分一部移転|所有権/.test(line));
   if (!purposeLine) return '';
 
   const cleaned = cleanValue(purposeLine.replace(/^登記の目的\s*[:：]?/, ''));
+  const m = cleaned.match(/所有権保存|所有権一部移転|所有権移転|持分一部移転|所有権/);
+  if (m) return m[0];
   if (/原因|受付|順位番号|権利者|所有者/.test(cleaned)) return '';
   return cleaned;
 }
@@ -606,7 +639,10 @@ function extractOwnerCandidates(lines: string[]) {
 
     if (/所有者|権利者その他事項|権利者|共有者|氏名/.test(line)) {
       const value = line.replace(/^(所有者|権利者その他事項|権利者|共有者|氏名)\s*[:：]?/, '').trim();
-      if (value) raw.push(value);
+      if (value) {
+        raw.push(value);
+        raw.push(...value.split(/[／/]/).map(cleanValue));
+      }
     }
 
     const inline = [...line.matchAll(/(?:所有者|権利者|共有者)\s*[:：]?\s*([^\s]+)/g)].map((m) => m[1]);
@@ -661,8 +697,24 @@ function parseKoukuEntries(koukuLines: string[]) {
     blocks.push({ startIndex: currentStart, lines: current });
   }
 
-  return blocks.map<KoukuEntry>((block) => {
+  const mergedBlocks: Array<{ startIndex: number; lines: string[] }> = [];
+  for (const block of blocks) {
+    const joined = block.lines.join(' ');
+    const isReceiptOnly = /^(第\s*)?\d+\s*号$|^第\s*\d+\s*号$/.test(joined.replace(/\s/g, ''));
+    if (isReceiptOnly) {
+      const next = blocks[blocks.indexOf(block) + 1];
+      if (next) {
+        next.lines = [...block.lines, ...next.lines];
+        next.startIndex = block.startIndex;
+        continue;
+      }
+    }
+    mergedBlocks.push(block);
+  }
+
+  return mergedBlocks.map<KoukuEntry>((block) => {
     const purpose = extractPurpose(block.lines);
+    const receipt = extractReceipt(block.lines);
     const cause = extractCause(block.lines);
     const owners = extractOwnerCandidates(block.lines);
     const invalid = isInvalidKoukuEntry(cause, block.lines);
@@ -672,6 +724,7 @@ function parseKoukuEntries(koukuLines: string[]) {
       startIndex: block.startIndex,
       lines: block.lines,
       purpose,
+      receipt,
       cause,
       owners,
       invalid,
@@ -691,6 +744,27 @@ function extractLatestOwnersFromKouku(entries: KoukuEntry[]) {
   return latest.owners;
 }
 
+function isHistoryNoise(value: string) {
+  const cleaned = cleanValue(value);
+  if (!cleaned) return true;
+  if (HEADER_LINE.test(cleaned)) return true;
+  if (EXCLUDED_RIGHTS_SECTION.test(cleaned)) return true;
+  if (hasExplicitOcrNoise(cleaned)) return true;
+  if (/^[A-Za-z0-9\s]+$/.test(cleaned)) return true;
+  if (/^[\d\/:.\-\s]+$/.test(cleaned)) return true;
+  if (/^第?\d+号?$/.test(cleaned)) return true;
+  if (/^受付\s*第?\d+号?$/.test(cleaned)) return true;
+  return looksLikeOcrGarbage(cleaned);
+}
+
+function cleanHistoryItem(value: string) {
+  return cleanValue(value)
+    .replace(/\s*\|\s*/g, ' ')
+    .replace(/権利者:\s*([^|]+?)\s*持分/g, '権利者: $1 持分')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
   const structured = entries
     .filter((e) => e.ownershipEvent)
@@ -698,12 +772,18 @@ function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
     .map((e) => {
       const parts: string[] = [];
       if (e.purpose) parts.push(e.purpose);
+      if (e.receipt) parts.push(`受付: ${e.receipt}`);
       if (e.cause) parts.push(`原因: ${e.cause}`);
       if (e.owners.length > 0) parts.push(`権利者: ${e.owners.join(' / ')}`);
-      const merged = parts.join(' | ');
+      const shareLine = e.lines.find((line) => /持分\s*[0-9]+分の[0-9]+/.test(line));
+      if (shareLine) {
+        const share = shareLine.match(/持分\s*[0-9]+分の[0-9]+/);
+        if (share) parts.push(share[0].replace(/\s/g, ''));
+      }
+      const merged = cleanHistoryItem(parts.join(' '));
       if (!merged) return '';
       if (HEADER_LINE.test(merged) || EXCLUDED_RIGHTS_SECTION.test(merged)) return '';
-      if (hasExplicitOcrNoise(merged) || looksLikeOcrGarbage(merged)) return '';
+      if (isHistoryNoise(merged)) return '';
       return isPlausibleText(merged) ? merged : '';
     })
     .filter(Boolean);
@@ -711,7 +791,7 @@ function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
   if (structured.length > 0) return unique(structured).slice(0, 30);
 
   const fallback = allLines.filter((line) => {
-    return /所有権|所有者|権利者|共有者|原因|売買|相続|贈与|受付|第\d+号/.test(line) && isPlausibleText(line) && !EXCLUDED_RIGHTS_SECTION.test(line);
+    return /所有権|所有者|権利者|共有者|原因|売買|相続|贈与|受付|第\d+号/.test(line) && isPlausibleText(line) && !isHistoryNoise(line);
   });
 
   return unique(fallback).slice(0, 30);

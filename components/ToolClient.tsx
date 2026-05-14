@@ -90,6 +90,7 @@ type OcrDiagnostics = {
   correctionExamples?: Array<{ label: string; count: number }>;
   normalizationSummary?: string[];
   fieldReasons?: string[];
+  structureSummary?: string[];
   extractionAccepted?: boolean;
 };
 
@@ -208,15 +209,19 @@ function previewScoreForText(text: string) {
 
 function emptyParseResponse(previewText = ''): ParseResponse {
   return {
-    fields: {
-      location: '',
-      number: '',
-      area: '',
-      buildingArea: '',
-      owner: '',
-      ownersHistory: [],
-      raw: previewText
-    }
+    fields: normalizeFields({ raw: previewText })
+  };
+}
+
+function normalizeFields(fields: ExtractedFields = {}): ExtractedFields {
+  return {
+    location: fields.location || '',
+    number: fields.number || '',
+    area: fields.area || '',
+    buildingArea: fields.buildingArea || '',
+    owner: fields.owner || '',
+    ownersHistory: Array.isArray(fields.ownersHistory) ? fields.ownersHistory.filter(Boolean) : [],
+    raw: fields.raw || ''
   };
 }
 
@@ -257,10 +262,10 @@ function clipDiagnosticText(text = '') {
 function localParseResponse(text: string, rawText = text): ParseResponse {
   const fields = extractToukiFields(text);
   return {
-    fields: {
+    fields: normalizeFields({
       ...fields,
       raw: rawText
-    }
+    })
   };
 }
 
@@ -382,7 +387,7 @@ function mergeFieldCandidates(candidates: TextCandidate[], previewText: string):
   const historyCandidate = chooseField(candidates, 'ownersHistory');
 
   return {
-    fields: {
+    fields: normalizeFields({
       location,
       number,
       area,
@@ -390,17 +395,49 @@ function mergeFieldCandidates(candidates: TextCandidate[], previewText: string):
       owner,
       ownersHistory: historyCandidate?.parsed.fields.ownersHistory || [],
       raw: previewText
-    }
+    })
   };
 }
 
-function buildFieldReasons(fields: ExtractedFields) {
+function candidateSourceForField(candidates: TextCandidate[], field: keyof ExtractedFields, value?: string) {
+  if (!value) return '';
+  const candidate = candidates.find((item) => item.parsed.fields[field] === value);
+  return candidate ? sourceLabel(candidate.source) : '';
+}
+
+function countLikelyHistoryNoise(text = '') {
+  return text
+    .split(/\n+/)
+    .filter((line) => /WESS|Mow|BRd Ana|2th22|抵当権|共同担保|担保目録|^[A-Za-z0-9\s]{4,}$/.test(line.trim()))
+    .length;
+}
+
+function buildStructureSummary(text = '', fields: ExtractedFields) {
+  const compact = text.replace(/\s/g, '');
   return [
-    `location: ${fields.location ? `${fields.location}（表題部所在の確定候補）` : '未検出（表題部所在なし、所有者住所/担保目録/OCRノイズ由来の候補を却下）'}`,
-    `number: ${fields.number ? `${fields.number}（地番ラベル近傍の確定候補）` : '未検出（住所内番地、共有者住所、または地番ラベル根拠なしの番号を却下）'}`,
-    `area: ${fields.area ? `${fields.area}（地積ラベル近傍の確定候補）` : '未検出（地積ラベル近傍ではない面積値を却下）'}`,
-    `buildingArea: ${fields.buildingArea ? `${fields.buildingArea}（床面積/建物面積ラベル近傍の確定候補）` : '未検出（床面積/建物面積ラベル近傍ではない値を却下）'}`,
-    `owner: ${fields.owner ? `${fields.owner}（甲区の最新有効エントリ由来の確定候補）` : '未検出（見出し語、原因文、住所、またはOCRノイズ混じり候補を却下）'}`,
+    `表題部候補: ${/表題部|土地の表示|所在|地番|地積/.test(compact) ? 'あり' : '未確認'}`,
+    `甲区候補: ${/甲区|所有権移転|所有権一部移転|持分一部移転/.test(compact) ? 'あり' : '未確認'}`,
+    `乙区除外候補: ${/乙区|抵当権/.test(compact) ? 'あり' : 'なし'}`,
+    `共同担保除外候補: ${/共同担保|担保目録/.test(compact) ? 'あり' : 'なし'}`,
+    `ownersHistory有効件数: ${fields.ownersHistory?.length || 0}件`,
+    `ownersHistoryノイズ除外目安: ${countLikelyHistoryNoise(text)}行`,
+    `最新所有者: ${fields.owner ? '確定候補あり' : '未検出（最新有効エントリの人名/法人名根拠不足）'}`,
+    `CSV/Excel確定値: owner=${fields.owner || '空欄'} / location=${fields.location || '空欄'} / number=${fields.number || '空欄'} / area=${fields.area || '空欄'} / buildingArea=${fields.buildingArea || '空欄'}`
+  ];
+}
+
+function buildFieldReasons(fields: ExtractedFields, candidates: TextCandidate[] = []) {
+  const sourceFor = (field: keyof ExtractedFields, value?: string) => {
+    const source = candidateSourceForField(candidates, field, value);
+    return source ? ` / 採用元: ${source}` : '';
+  };
+
+  return [
+    `location: ${fields.location ? `${fields.location}（表題部所在の確定候補${sourceFor('location', fields.location)}）` : '未検出（表題部所在なし、所有者住所/担保目録/OCRノイズ由来の候補を却下）'}`,
+    `number: ${fields.number ? `${fields.number}（地番ラベル近傍の確定候補${sourceFor('number', fields.number)}）` : '未検出（住所内番地、共有者住所、または地番ラベル根拠なしの番号を却下）'}`,
+    `area: ${fields.area ? `${fields.area}（地積ラベル近傍の確定候補${sourceFor('area', fields.area)}）` : '未検出（地積ラベル近傍ではない面積値を却下）'}`,
+    `buildingArea: ${fields.buildingArea ? `${fields.buildingArea}（床面積/建物面積ラベル近傍の確定候補${sourceFor('buildingArea', fields.buildingArea)}）` : '未検出（床面積/建物面積ラベル近傍ではない値を却下）'}`,
+    `owner: ${fields.owner ? `${fields.owner}（甲区の最新有効エントリ由来の確定候補${sourceFor('owner', fields.owner)}）` : '未検出（見出し語、原因文、住所、日付混入、またはOCRノイズ混じり候補を却下）'}`,
     `history: ${fields.ownersHistory?.length || 0}件（甲区所有権事項を優先）`
   ];
 }
@@ -1073,7 +1110,8 @@ export function ToolClient() {
       if (latestOcrDiagnostics) {
         setOcrDiagnostics({
           ...latestOcrDiagnostics,
-          fieldReasons: buildFieldReasons(fieldMerged.fields),
+          fieldReasons: buildFieldReasons(fieldMerged.fields, candidates),
+          structureSummary: buildStructureSummary(latestOcrDiagnostics.normalizedText || previewText, fieldMerged.fields),
           extractionAccepted: Boolean(usableBest || fieldMergedAccepted),
           adoptedSource: displayCandidate?.source || latestOcrDiagnostics.adoptedSource
         });
@@ -1087,13 +1125,13 @@ export function ToolClient() {
       );
 
       if (usableBest || fieldMergedAccepted) {
-        const fields = usableBest
+        const fields = normalizeFields(usableBest
           ? {
               ...usableBest.parsed.fields,
               ...fieldMerged.fields,
               raw: usableBest.rawText || fieldMerged.fields.raw || usableBest.parsed.fields.raw || previewText
             }
-          : fieldMerged.fields;
+          : fieldMerged.fields);
         setResult({
           fields
         });
@@ -1291,6 +1329,16 @@ export function ToolClient() {
                         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                           {ocrDiagnostics.fieldReasons.map((reason) => (
                             <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {ocrDiagnostics.structureSummary && ocrDiagnostics.structureSummary.length > 0 ? (
+                      <div className="muted">
+                        構造解析:
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          {ocrDiagnostics.structureSummary.map((item) => (
+                            <li key={item}>{item}</li>
                           ))}
                         </ul>
                       </div>

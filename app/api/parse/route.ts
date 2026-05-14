@@ -5,8 +5,30 @@ import { NextRequest } from 'next/server';
 import { extractToukiFields } from '@/lib/extract';
 import { buildWorkbook, buildCsv } from '@/lib/excel';
 
+type ExportFields = {
+  location?: string;
+  number?: string;
+  area?: string;
+  buildingArea?: string;
+  owner?: string;
+  ownersHistory?: string[];
+  raw?: string;
+};
+
 function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
+}
+
+function normalizeExportFields(fields: ExportFields = {}) {
+  return {
+    location: fields.location || '',
+    number: fields.number || '',
+    area: fields.area || '',
+    buildingArea: fields.buildingArea || '',
+    owner: fields.owner || '',
+    ownersHistory: Array.isArray(fields.ownersHistory) ? fields.ownersHistory.filter(Boolean) : [],
+    raw: fields.raw || ''
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -70,19 +92,12 @@ export async function PUT(req: NextRequest) {
   try {
     const payload: {
       format?: 'xlsx' | 'csv';
-      fields: {
-        location?: string;
-        number?: string;
-        area?: string;
-        buildingArea?: string;
-        owner?: string;
-        ownersHistory?: string[];
-        raw?: string;
-      };
+      fields: ExportFields;
     } = await req.json();
+    const fields = normalizeExportFields(payload.fields);
 
     if (payload.format === 'csv') {
-      const csv = buildCsv(payload.fields);
+      const csv = buildCsv(fields);
       return new Response(csv, {
         headers: {
           'Content-Type': 'text/csv; charset=utf-8',
@@ -91,7 +106,7 @@ export async function PUT(req: NextRequest) {
       });
     }
 
-    const workbook = buildWorkbook(payload.fields, '', '');
+    const workbook = buildWorkbook(fields, '', '');
 
     return new Response(workbook, {
       headers: {

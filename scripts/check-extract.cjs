@@ -5,6 +5,7 @@ const ts = require('typescript');
 
 const rootDir = path.resolve(__dirname, '..');
 const extractPath = path.join(rootDir, 'lib', 'extract.ts');
+const excelPath = path.join(rootDir, 'lib', 'excel.ts');
 
 function loadTypeScriptModule(filePath) {
   const source = fs.readFileSync(filePath, 'utf8');
@@ -25,6 +26,7 @@ function loadTypeScriptModule(filePath) {
 }
 
 const { extractToukiFields, normalizeOcrTextForExtractionWithReport } = loadTypeScriptModule(extractPath);
+const { buildCsv } = loadTypeScriptModule(excelPath);
 
 const cases = [
   {
@@ -384,6 +386,8 @@ const cases = [
       ownersHistoryIncludes: [
         '所有権移転',
         '所有権一部移転',
+        '受付: 第2548号',
+        '受付: 第21289号',
         '原因: 令和2年1月30日売買',
         '株式会社アーネストワン'
       ],
@@ -396,6 +400,88 @@ const cases = [
         '郡山市大槻町字葉山下',
         '株式会社アーネストワン'
       ]
+    }
+  },
+  {
+    name: '実PDF風OCR崩れから表題部と甲区履歴を統合抽出する',
+    text: `
+2020/09/04 10:18 現用の情報です
+填地の表示
+所奉 郡山市大衝町字茶山下 地 番 S3-1 地 積 88.00㎡
+原因及びその日付 登記の日付
+
+権 利 部
+甲 區
+WESS Mow BRd Ana 2th22
+遷委番号ーー登記の日的 受付年月日 受付番号 権利者その他の事通
+第2S48号
+所有権秘転 受信 令和2年1月30日
+原囚 令大2年1月30日 売暫
+所有省 令和2年6月19日 / 林式会社アー ネ ス トワン
+第2128 9号
+所有権一部移云
+原回 信和2年7月27日 沈質
+共有者 波違太郎
+3 8 分 の 1
+権利部（乙区）
+抵当挫
+共同#保
+`,
+    expected: {
+      location: '郡山市大槻町字葉山下',
+      number: '53-1',
+      area: '88.00㎡',
+      buildingArea: '',
+      owner: '',
+      ownersHistoryIncludes: [
+        '所有権移転',
+        '所有権一部移転',
+        '原因: 令和2年1月30日売買',
+        '株式会社アーネストワン'
+      ],
+      ownersHistoryExcludes: [
+        '令和2年6月19日 / 株式会社アーネストワン',
+        'WESS',
+        'Mow',
+        'BRd Ana',
+        '2th22',
+        '抵当権',
+        '共同担保',
+        '波違太郎'
+      ],
+      rawIncludes: [
+        '土地の表示',
+        '所在郡山市大槻町字葉山下',
+        '地番 53-1',
+        '地積88.00㎡',
+        '順位番号',
+        '第2548号',
+        '第21289号',
+        '38分の1'
+      ]
+    }
+  },
+  {
+    name: '建物表示と地図番号混在でも確定値を取り違えない',
+    text: `
+建物の表示
+所在 東京都港区芝公園四丁目 地図番号 999 地番 800番8 地積 120.50㎡
+種類 居宅 構造 木造 床面積 1階 61.10㎡
+権利部
+甲区
+第3001号
+所有権保存
+原因 令和5年5月5日保存
+所有者 佐々木五郎
+`,
+    expected: {
+      location: '東京都港区芝公園四丁目',
+      number: '800番8',
+      area: '120.50㎡',
+      buildingArea: '61.10㎡',
+      owner: '佐々木五郎',
+      ownersHistoryIncludes: ['所有権保存', '受付: 第3001号', '佐々木五郎'],
+      ownersHistoryExcludes: ['地図番号 999']
     }
   }
 ];
@@ -456,5 +542,22 @@ if (failed > 0) {
   console.error(`\n${failed}/${cases.length} extract checks failed.`);
   process.exit(1);
 }
+
+const csv = buildCsv({
+  owner: '佐々木五郎',
+  location: '東京都港区芝公園四丁目',
+  number: '800番8',
+  area: '120.50㎡',
+  buildingArea: '61.10㎡',
+  ownersHistory: ['所有権保存 受付: 第3001号 権利者: 佐々木五郎'],
+  raw: 'preview',
+  diagnostics: '混入禁止'
+});
+
+if (csv.includes('diagnostics') || csv.includes('混入禁止')) {
+  console.error('\nFAIL CSV出力に診断データを混入しない');
+  process.exit(1);
+}
+console.log('PASS CSV出力に診断データを混入しない');
 
 console.log(`\n${cases.length} extract checks passed.`);
