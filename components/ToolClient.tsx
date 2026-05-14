@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import Tesseract from 'tesseract.js';
-import { extractToukiFields, normalizeOcrTextForExtraction } from '@/lib/extract';
+import {
+  extractToukiFields,
+  normalizeOcrTextForExtraction,
+  normalizeOcrTextForExtractionWithReport
+} from '@/lib/extract';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
@@ -25,7 +29,9 @@ type TextSource =
   | 'text-layer'
   | 'server'
   | 'ocr-original'
+  | 'ocr-grayscale'
   | 'ocr-light'
+  | 'ocr-contrast'
   | 'ocr-binary'
   | 'ocr-normalized';
 
@@ -48,19 +54,26 @@ type TextCandidate = {
 
 type OcrPage = {
   original: HTMLCanvasElement;
+  grayscale: HTMLCanvasElement;
   light: HTMLCanvasElement;
+  contrast: HTMLCanvasElement;
   binary: HTMLCanvasElement;
 };
 
 type OcrTextResult = {
   text: string;
-  source: Extract<TextSource, 'ocr-original' | 'ocr-light' | 'ocr-binary'>;
+  source: OcrImageSource;
   quality: TextQuality;
   diagnostics: OcrDiagnostics;
 };
 
+type OcrImageSource = Extract<
+  TextSource,
+  'ocr-original' | 'ocr-grayscale' | 'ocr-light' | 'ocr-contrast' | 'ocr-binary'
+>;
+
 type OcrVariantDiagnostic = {
-  source: Extract<TextSource, 'ocr-original' | 'ocr-light' | 'ocr-binary'>;
+  source: OcrImageSource;
   label: string;
   text: string;
   quality: TextQuality;
@@ -74,6 +87,8 @@ type OcrDiagnostics = {
   normalizedText?: string;
   normalizedQuality?: TextQuality;
   normalizedExtracted?: ExtractedFields;
+  correctionExamples?: Array<{ label: string; count: number }>;
+  normalizationSummary?: string[];
   fieldReasons?: string[];
   extractionAccepted?: boolean;
 };
@@ -213,8 +228,12 @@ function sourceLabel(source: TextSource) {
       return 'サーバー解析';
     case 'ocr-original':
       return 'OCR original';
+    case 'ocr-grayscale':
+      return 'OCR grayscale';
     case 'ocr-light':
       return 'OCR light';
+    case 'ocr-contrast':
+      return 'OCR contrast';
     case 'ocr-binary':
       return 'OCR binary';
     case 'ocr-normalized':
@@ -243,6 +262,15 @@ function localParseResponse(text: string, rawText = text): ParseResponse {
       raw: rawText
     }
   };
+}
+
+function buildNormalizationSummary(before: TextQuality, after: TextQuality) {
+  return [
+    `正規化前スコア: ${formatScore(before.score)} / 後: ${formatScore(after.score)}`,
+    `ラベル数: ${before.labelCount} → ${after.labelCount}`,
+    `日本語率: ${formatPercent(before.japaneseRatio)} → ${formatPercent(after.japaneseRatio)}`,
+    `ノイズ率: ${formatPercent(before.noiseRatio)} → ${formatPercent(after.noiseRatio)}`
+  ];
 }
 
 function hasExtractedValue(fields: ExtractedFields) {
@@ -489,7 +517,10 @@ function preprocessCanvas(source: HTMLCanvasElement) {
   return autoCropCanvas(canvas);
 }
 
-function lightPreprocessCanvas(source: HTMLCanvasElement) {
+function tonePreprocessCanvas(
+  source: HTMLCanvasElement,
+  options: { contrast: number; brightness: number; sharpen?: boolean }
+) {
   const canvas = document.createElement('canvas');
   canvas.width = source.width;
   canvas.height = source.height;
@@ -507,14 +538,33 @@ function lightPreprocessCanvas(source: HTMLCanvasElement) {
     const rawGray = Math.round(
       data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
     );
-    const contrasted = clamp(Math.round((rawGray - 128) * 1.35 + 128), 0, 255);
+    const contrasted = clamp(Math.round((rawGray - 128) * options.contrast + 128 + options.brightness), 0, 255);
     data[i] = contrasted;
     data[i + 1] = contrasted;
     data[i + 2] = contrasted;
   }
 
   ctx.putImageData(imageData, 0, 0);
+
+  if (options.sharpen) {
+    ctx.filter = 'contrast(1.08) brightness(1.02)';
+    ctx.drawImage(canvas, 0, 0);
+    ctx.filter = 'none';
+  }
+
   return canvas;
+}
+
+function grayscalePreprocessCanvas(source: HTMLCanvasElement) {
+  return tonePreprocessCanvas(source, { contrast: 1.12, brightness: 4 });
+}
+
+function lightPreprocessCanvas(source: HTMLCanvasElement) {
+  return tonePreprocessCanvas(source, { contrast: 1.22, brightness: 8, sharpen: true });
+}
+
+function contrastPreprocessCanvas(source: HTMLCanvasElement) {
+  return tonePreprocessCanvas(source, { contrast: 1.5, brightness: 10, sharpen: true });
 }
 
 function autoCropCanvas(source: HTMLCanvasElement) {
@@ -659,7 +709,7 @@ async function renderPdfPages(file: File) {
       continue;
     }
 
-    const viewport = page.getViewport({ scale: 3.4 });
+    const viewport = page.getViewport({ scale: 3.8 });
 
     const original = document.createElement('canvas');
     const context = original.getContext('2d');
@@ -675,14 +725,16 @@ async function renderPdfPages(file: File) {
 
     pages.push({
       original,
+      grayscale: grayscalePreprocessCanvas(original),
       light: lightPreprocessCanvas(original),
+      contrast: contrastPreprocessCanvas(original),
       binary: preprocessCanvas(original)
     });
   }
 
   if (pages.length === 0) {
     const firstPage = await pdf.getPage(1);
-    const viewport = firstPage.getViewport({ scale: 3.4 });
+    const viewport = firstPage.getViewport({ scale: 3.8 });
     const original = document.createElement('canvas');
     const context = original.getContext('2d');
 
@@ -692,7 +744,9 @@ async function renderPdfPages(file: File) {
       await firstPage.render({ canvasContext: context, viewport }).promise;
       pages.push({
         original,
+        grayscale: grayscalePreprocessCanvas(original),
         light: lightPreprocessCanvas(original),
+        contrast: contrastPreprocessCanvas(original),
         binary: preprocessCanvas(original)
       });
     }
@@ -720,15 +774,19 @@ async function recognizeImage(
 async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): Promise<OcrTextResult> {
   const pages = await renderPdfPages(file);
   let fullText = '';
-  const variantTexts: Record<OcrTextResult['source'], string> = {
+  const variantTexts: Record<OcrImageSource, string> = {
     'ocr-original': '',
+    'ocr-grayscale': '',
     'ocr-light': '',
+    'ocr-contrast': '',
     'ocr-binary': ''
   };
-  const firstPageImages: Partial<Record<OcrTextResult['source'], string>> = {};
-  const sourceCounts: Record<OcrTextResult['source'], number> = {
+  const firstPageImages: Partial<Record<OcrImageSource, string>> = {};
+  const sourceCounts: Record<OcrImageSource, number> = {
     'ocr-original': 0,
+    'ocr-grayscale': 0,
     'ocr-light': 0,
+    'ocr-contrast': 0,
     'ocr-binary': 0
   };
 
@@ -736,7 +794,7 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
     const pageNo = i + 1;
 
     const variants: Array<{
-      source: OcrTextResult['source'];
+      source: OcrImageSource;
       canvas: HTMLCanvasElement;
       label: string;
     }> = [
@@ -746,9 +804,19 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
         label: `OCRで読み取り中… ${pageNo}/${pages.length}ページ`
       },
       {
+        source: 'ocr-grayscale',
+        canvas: pages[i].grayscale,
+        label: `グレースケールで読み取り中… ${pageNo}/${pages.length}ページ`
+      },
+      {
         source: 'ocr-light',
         canvas: pages[i].light,
         label: `軽く補正して読み取り中… ${pageNo}/${pages.length}ページ`
+      },
+      {
+        source: 'ocr-contrast',
+        canvas: pages[i].contrast,
+        label: `コントラスト補正して読み取り中… ${pageNo}/${pages.length}ページ`
       },
       {
         source: 'ocr-binary',
@@ -782,12 +850,12 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
     fullText += `${best.text}\n`;
   }
 
-  const source = (Object.entries(sourceCounts) as Array<[OcrTextResult['source'], number]>).sort(
+  const source = (Object.entries(sourceCounts) as Array<[OcrImageSource, number]>).sort(
     (a, b) => b[1] - a[1]
   )[0][0];
 
   const diagnostics: OcrDiagnostics = {
-    variants: (Object.keys(variantTexts) as OcrTextResult['source'][]).map((source) => ({
+    variants: (Object.keys(variantTexts) as OcrImageSource[]).map((source) => ({
       source,
       label: sourceLabel(source),
       text: variantTexts[source].trim(),
@@ -959,7 +1027,8 @@ export function ToolClient() {
 
         if (hasEnoughText(ocrResult.text)) {
           setStatusText('読み取った内容を整理しています…');
-          const normalizedExtractionText = normalizeOcrTextForExtraction(ocrResult.text);
+          const normalizationReport = normalizeOcrTextForExtractionWithReport(ocrResult.text);
+          const normalizedExtractionText = normalizationReport.text;
           const parseText = hasEnoughText(normalizedExtractionText)
             ? normalizedExtractionText
             : ocrResult.text;
@@ -980,7 +1049,9 @@ export function ToolClient() {
             ...ocrResult.diagnostics,
             normalizedText: parseText,
             normalizedQuality,
-            normalizedExtracted: normalizedParsed.fields
+            normalizedExtracted: normalizedParsed.fields,
+            correctionExamples: normalizationReport.corrections.slice(0, 12),
+            normalizationSummary: buildNormalizationSummary(previewQuality, normalizedQuality)
           };
           console.debug('touki ocr normalization', {
             source: ocrResult.source,
@@ -1220,6 +1291,28 @@ export function ToolClient() {
                         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                           {ocrDiagnostics.fieldReasons.map((reason) => (
                             <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {ocrDiagnostics.normalizationSummary && ocrDiagnostics.normalizationSummary.length > 0 ? (
+                      <div className="muted">
+                        正規化サマリ:
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          {ocrDiagnostics.normalizationSummary.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {ocrDiagnostics.correctionExamples && ocrDiagnostics.correctionExamples.length > 0 ? (
+                      <div className="muted">
+                        OCR補正例:
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                          {ocrDiagnostics.correctionExamples.map((item) => (
+                            <li key={item.label}>
+                              {item.label}: {item.count}件
+                            </li>
                           ))}
                         </ul>
                       </div>

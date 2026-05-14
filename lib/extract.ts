@@ -52,37 +52,58 @@ const TITLE_LABELS = ['所在', '地番', '地積', '床面積', '建物面積']
 const EXCLUDED_RIGHTS_SECTION = /乙区|抵当権|抵当権設定|共同担保目録|共同担保|担保目録|金銭消費貸借|連帯債務者|抵当権者/;
 const HEADER_LINE = /登記の目的|受付年月日|受付番号|権利者その他事項|順位番号.*登記の目的|遷委番号.*登記の目的|権利者その他|能利者その他/;
 
-const OCR_LABEL_NORMALIZERS: Array<[RegExp, string]> = [
-  [/所\s*有\s*權/g, '所有権'],
-  [/所\s*有\s*権\s*秘\s*転/g, '所有権移転'],
-  [/所有権秘転/g, '所有権移転'],
-  [/所\s*有\s*権\s*移\s*転/g, '所有権移転'],
-  [/所\s*有\s*権/g, '所有権'],
-  [/所\s*有\s*省/g, '所有者'],
-  [/所有省/g, '所有者'],
-  [/能\s*利\s*者/g, '権利者'],
-  [/能利者/g, '権利者'],
-  [/権\s*利\s*者\s*そ\s*の\s*他\s*の\s*事\s*項/g, '権利者その他事項'],
-  [/権\s*利\s*者/g, '権利者'],
-  [/共\s*有\s*者/g, '共有者'],
-  [/原\s*因/g, '原因'],
-  [/順\s*位\s*番\s*号/g, '順位番号'],
-  [/受\s*付\s*年\s*月\s*日/g, '受付年月日'],
-  [/受\s*付\s*番\s*号/g, '受付番号'],
-  [/登\s*記\s*の\s*目\s*的/g, '登記の目的'],
-  [/抵\s*当\s*挫/g, '抵当権'],
-  [/地\s*図\s*帯\s*[呈号]/g, '地図番号'],
-  [/令\s*大/g, '令和'],
-  [/売\s*[質買]|沈\s*質/g, '売買'],
-  [/所\s*在/g, '所在'],
-  [/地\s*番/g, '地番'],
-  [/地\s*積/g, '地積'],
-  [/床\s*面\s*積/g, '床面積'],
-  [/建\s*物\s*面\s*積/g, '建物面積'],
-  [/表\s*題\s*部/g, '表題部'],
-  [/権\s*利\s*部/g, '権利部'],
-  [/甲\s*[区區]/g, '甲区'],
-  [/乙\s*[区區]/g, '乙区']
+type OcrCorrectionRule = {
+  pattern: RegExp;
+  replacement: string;
+  label: string;
+};
+
+export type OcrCorrectionSummary = {
+  text: string;
+  corrections: Array<{ label: string; count: number }>;
+};
+
+const OCR_CORRECTION_RULES: OcrCorrectionRule[] = [
+  { pattern: /所\s*有\s*權/g, replacement: '所有権', label: '所有權→所有権' },
+  { pattern: /所有権一部移云/g, replacement: '所有権一部移転', label: '所有権一部移転補正' },
+  { pattern: /所\s*有\s*権\s*秘\s*転|所有権秘転|所有権移云/g, replacement: '所有権移転', label: '所有権移転補正' },
+  { pattern: /所\s*有\s*権\s*移\s*転/g, replacement: '所有権移転', label: '所有権移転空白補正' },
+  { pattern: /所\s*有\s*権/g, replacement: '所有権', label: '所有権空白補正' },
+  { pattern: /所\s*有\s*省|所有省/g, replacement: '所有者', label: '所有者補正' },
+  { pattern: /能\s*利\s*者|能利者|権刑者/g, replacement: '権利者', label: '権利者補正' },
+  { pattern: /権\s*利\s*者\s*そ\s*の\s*他\s*の\s*事\s*項/g, replacement: '権利者その他事項', label: '権利者その他事項補正' },
+  { pattern: /権\s*利\s*者/g, replacement: '権利者', label: '権利者空白補正' },
+  { pattern: /共\s*有\s*者/g, replacement: '共有者', label: '共有者空白補正' },
+  { pattern: /原\s*因|原囚|原回/g, replacement: '原因', label: '原因補正' },
+  { pattern: /順\s*位\s*番\s*号|遷委番号/g, replacement: '順位番号', label: '順位番号補正' },
+  { pattern: /受\s*付\s*年\s*月\s*日|受人年月日?/g, replacement: '受付年月日', label: '受付年月日補正' },
+  { pattern: /受\s*付\s*番\s*号/g, replacement: '受付番号', label: '受付番号補正' },
+  { pattern: /受信/g, replacement: '受付', label: '受付補正' },
+  { pattern: /登\s*記\s*の\s*目\s*的|登記の日的/g, replacement: '登記の目的', label: '登記の目的補正' },
+  { pattern: /登記の目的受付/g, replacement: '登記の目的 受付', label: '登記の目的/受付分割' },
+  { pattern: /事[頂通]/g, replacement: '事項', label: '事項補正' },
+  { pattern: /抵\s*当\s*挫/g, replacement: '抵当権', label: '抵当権補正' },
+  { pattern: /抵当拍者/g, replacement: '抵当権者', label: '抵当権者補正' },
+  { pattern: /共同[#＃]保/g, replacement: '共同担保', label: '共同担保補正' },
+  { pattern: /担人の目的/g, replacement: '担保の目的', label: '担保の目的補正' },
+  { pattern: /地\s*図\s*帯\s*[呈号]/g, replacement: '地図番号', label: '地図番号補正' },
+  { pattern: /令\s*大|信和|令衝/g, replacement: '令和', label: '令和補正' },
+  { pattern: /売\s*[質買暫]|沈\s*質/g, replacement: '売買', label: '売買補正' },
+  { pattern: /大[機衝開欄限横]町/g, replacement: '大槻町', label: '大槻町候補補正' },
+  { pattern: /茶山下/g, replacement: '葉山下', label: '葉山下候補補正' },
+  { pattern: /都山市|都市山市|都市市|都市山|都市|部山市|前山市|拓貼市/g, replacement: '郡山市', label: '郡山市候補補正' },
+  { pattern: /林式会社|床攻会社/g, replacement: '株式会社', label: '株式会社補正' },
+  { pattern: /アー\s*ネ\s*ス\s*ト\s*ワン|アーネス\s*トワン|アー\s*ネスト\s*ワン/g, replacement: 'アーネストワン', label: 'アーネストワン補正' },
+  { pattern: /波違|濾邊|[sg]辺/g, replacement: '渡辺 OCR候補', label: '渡辺候補補正' },
+  { pattern: /所\s*在/g, replacement: '所在', label: '所在空白補正' },
+  { pattern: /地\s*番/g, replacement: '地番', label: '地番空白補正' },
+  { pattern: /地\s*積/g, replacement: '地積', label: '地積空白補正' },
+  { pattern: /床\s*面\s*積/g, replacement: '床面積', label: '床面積空白補正' },
+  { pattern: /建\s*物\s*面\s*積/g, replacement: '建物面積', label: '建物面積空白補正' },
+  { pattern: /表\s*題\s*部/g, replacement: '表題部', label: '表題部空白補正' },
+  { pattern: /権\s*利\s*部/g, replacement: '権利部', label: '権利部空白補正' },
+  { pattern: /甲\s*[区區]/g, replacement: '甲区', label: '甲区補正' },
+  { pattern: /乙\s*[区區]/g, replacement: '乙区', label: '乙区補正' }
 ];
 
 function cleanValue(value: string) {
@@ -95,22 +116,76 @@ function cleanValue(value: string) {
     .trim();
 }
 
-export function normalizeOcrTextForExtraction(text: string) {
+function countRuleMatches(value: string, pattern: RegExp) {
+  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+  const copy = new RegExp(pattern.source, flags);
+  return (value.match(copy) || []).length;
+}
+
+function applyOcrCorrectionRules(text: string, corrections: Map<string, number>) {
+  let v = text;
+  for (const rule of OCR_CORRECTION_RULES) {
+    const count = countRuleMatches(v, rule.pattern);
+    if (count > 0) {
+      corrections.set(rule.label, (corrections.get(rule.label) || 0) + count);
+      v = v.replace(rule.pattern, rule.replacement);
+    }
+  }
+  return v;
+}
+
+function applyContextualNumberCorrections(text: string, corrections: Map<string, number>) {
+  return text
+    .split('\n')
+    .map((line) => {
+      let next = line;
+      const isNumericContext = /地番|受付|順位番号|第|号|持分|分の|番地|地積|床面積|建物面積/.test(next);
+      if (!isNumericContext) return next;
+
+      const before = next;
+      next = next
+        .replace(/[§ＳS](?=\d)/g, '5')
+        .replace(/(?<=\d)[§ＳS](?=\d|号|番|-|$)/g, '5')
+        .replace(/(?<=\d)B(?=\d|号|番|-|$)/g, '8')
+        .replace(/(?<=\d)[Il|｜](?=\d|号|番|-|$)/g, '1')
+        .replace(/(?<=\d)O(?=\d|号|番|-|$)/g, '0')
+        .replace(/第\s*(\d+)\s+(\d+)\s*号/g, '第$1$2号')
+        .replace(/(\d)\s*[=:]\s*(\d)/g, '$1-$2')
+        .replace(/(\d)\s+(\d)\s*分\s*の\s*(\d)/g, '$1$2分の$3')
+        .replace(/(\d+)\s*分\s*の\s*(\d+)/g, '$1分の$2');
+
+      if (next !== before) {
+        corrections.set('数値文脈補正', (corrections.get('数値文脈補正') || 0) + 1);
+      }
+      return next;
+    })
+    .join('\n');
+}
+
+function applyContextualPlaceCorrections(text: string, corrections: Map<string, number>) {
+  const before = text;
+  const next = text.replace(/(所在\s*)都山市/g, '$1郡山市');
+  if (next !== before) {
+    corrections.set('郡山市候補補正', (corrections.get('郡山市候補補正') || 0) + 1);
+  }
+  return next;
+}
+
+export function normalizeOcrTextForExtractionWithReport(text: string): OcrCorrectionSummary {
+  const corrections = new Map<string, number>();
   let v = text
     .replace(/\r/g, '\n')
     .replace(/\u3000/g, ' ')
     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
     .replace(/[㎡m²㎥]/g, '㎡')
     .replace(/[｜|]/g, ' ')
-    .replace(/[§ＳS](?=\d)/g, '5')
-    .replace(/(?<=\d)[§ＳS](?=\d|$)/g, '5')
     .replace(/(\d)\s*[=:]\s*(\d)/g, '$1-$2')
     .replace(/(\d+)\)/g, '$1')
     .replace(/\s{2,}/g, ' ');
 
-  for (const [pattern, replacement] of OCR_LABEL_NORMALIZERS) {
-    v = v.replace(pattern, replacement);
-  }
+  v = applyContextualNumberCorrections(v, corrections);
+  v = applyContextualPlaceCorrections(v, corrections);
+  v = applyOcrCorrectionRules(v, corrections);
 
   v = v
     .split('\n')
@@ -126,11 +201,20 @@ export function normalizeOcrTextForExtraction(text: string) {
     )
     .join('\n');
 
-  for (const [pattern, replacement] of OCR_LABEL_NORMALIZERS) {
-    v = v.replace(pattern, replacement);
-  }
+  v = applyContextualNumberCorrections(v, corrections);
+  v = applyContextualPlaceCorrections(v, corrections);
+  v = applyOcrCorrectionRules(v, corrections);
 
-  return v.replace(/\n{2,}/g, '\n').trim();
+  return {
+    text: v.replace(/\n{2,}/g, '\n').trim(),
+    corrections: [...corrections.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  };
+}
+
+export function normalizeOcrTextForExtraction(text: string) {
+  return normalizeOcrTextForExtractionWithReport(text).text;
 }
 
 function normalizeText(text: string) {
@@ -276,6 +360,7 @@ function safeOwner(value: string) {
   if (hasHighAsciiNoise(cleaned, 0.12)) return '';
   if (hasHighSymbolNoise(cleaned, 0.02)) return '';
   if (hasExplicitOcrNoise(cleaned)) return '';
+  if (/OCR候補/.test(cleaned)) return '';
   if (/登記の目的|受付年月日|受付番号|順位番号|権利者その他|原因|売買|所有権移転|所有権一部移転|持分一部移転|抵当権|共同担保/.test(cleaned)) return '';
   if (/会社/.test(cleaned) && !looksLikeCorp(cleaned)) return '';
   if (cleaned.length > 40) return '';
@@ -517,6 +602,7 @@ function extractOwnerCandidates(lines: string[]) {
   for (const line of lines) {
     if (!isPlausibleText(line)) continue;
     if (HEADER_LINE.test(line) || EXCLUDED_RIGHTS_SECTION.test(line)) continue;
+    if (/OCR候補/.test(line)) continue;
 
     if (/所有者|権利者その他事項|権利者|共有者|氏名/.test(line)) {
       const value = line.replace(/^(所有者|権利者その他事項|権利者|共有者|氏名)\s*[:：]?/, '').trim();

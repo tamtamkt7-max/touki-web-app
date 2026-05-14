@@ -24,7 +24,7 @@ function loadTypeScriptModule(filePath) {
   return mod.exports;
 }
 
-const { extractToukiFields } = loadTypeScriptModule(extractPath);
+const { extractToukiFields, normalizeOcrTextForExtractionWithReport } = loadTypeScriptModule(extractPath);
 
 const cases = [
   {
@@ -350,6 +350,51 @@ const cases = [
         'B2548% んかも東京都西東京市北原町三丁目2番22',
         '抵当権設定',
         '郡山市大槻町字葉山下2番21'
+      ]
+    }
+  },
+  {
+    name: '登記簿OCR語彙と数値崩れを正規化する',
+    text: `
+表 題 部
+所 在 都山市大機町字茶山下
+地 番 §3-1
+地 積 88.00㎡
+権 利 部
+甲 區
+遷委番号ーー登記の日的受付年月日 権利者その他の事頂
+第2S48号
+所有権秘転
+原囚 令大2年1月30日 売質
+所有省 林式会社 アー ネ ス トワン
+第2128 9号
+所有権一部移云
+原回 信和2年7月27日 沈質
+能利者 波違太郎
+3 8 分 の 1
+抵当挫
+共同#保
+`,
+    expected: {
+      location: '郡山市大槻町字葉山下',
+      number: '53-1',
+      area: '88.00㎡',
+      buildingArea: '',
+      owner: '',
+      ownersHistoryIncludes: [
+        '所有権移転',
+        '所有権一部移転',
+        '原因: 令和2年1月30日売買',
+        '株式会社アーネストワン'
+      ],
+      ownersHistoryExcludes: ['波違太郎', '抵当権', '共同担保'],
+      rawIncludes: [
+        '順位番号',
+        '第2548号',
+        '第21289号',
+        '38分の1',
+        '郡山市大槻町字葉山下',
+        '株式会社アーネストワン'
       ]
     }
   }
