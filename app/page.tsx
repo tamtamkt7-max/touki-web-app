@@ -10,7 +10,7 @@ export default function HomePage() {
         <div className="brand">登記サクッと変換</div>
 
         <nav className="site-nav">
-          <Link href="/tool">早速使う</Link>
+          <Link href="/tool">変換ツール</Link>
           <Link href="/terms">利用規約</Link>
           <Link href="/privacy">プライバシー</Link>
         </nav>
@@ -18,52 +18,50 @@ export default function HomePage() {
 
       <section className="hero shell">
         <div className="hero-copy">
-          <p className="eyebrow">PDFを入れるだけ</p>
+          <p className="eyebrow">登記簿PDFの確認を、短時間で</p>
 
           <h1 className="hero-title">
-            登記簿PDFを、
+            登記簿PDFを読み取り、
             <br />
-            見やすく整理して
-            <br />
-            すぐ使える形へ。
+            確認しやすい一覧へ。
           </h1>
 
           <p className="hero-lead">
-            所在地・地番・面積・最新の持ち主を整理して表示。
-            まずはPDFを入れるだけで使えます。
+            所在地・地番・面積・所有者の流れを画面で確認し、CSVやExcelに保存できます。
+            読み取り結果はその場で見直せるので、実務前の整理に使いやすい形です。
           </p>
 
           <div className="hero-actions">
             <Link href="/tool" className="button button-primary">
-              早速使う
+              変換ツールを開く
             </Link>
             <Link href="/terms" className="button button-secondary">
-              利用前に確認する
+              使う前に確認
             </Link>
           </div>
 
           <div className="trust-pills">
-            <span>迷わず使える</span>
-            <span>画面で結果確認</span>
-            <span>必要ならCSV / Excel保存</span>
+            <span>画面で確認してから保存</span>
+            <span>CSV / Excel対応</span>
+            <span>広告はトップページのみ</span>
           </div>
         </div>
 
         <div className="hero-panel">
-          <div className="panel panel-dark">
-            <div className="panel-badge">かんたん3ステップ</div>
+          <div className="panel panel-card workflow-panel">
+            <div className="panel-badge">利用の流れ</div>
             <ol className="step-list">
               <li>
-                <strong>PDFを入れる</strong>
-                <span>ドラッグ＆ドロップかクリックで選択</span>
+                <strong>PDFを選択</strong>
+                <span>登記簿PDFをドラッグ、またはクリックして選びます。</span>
               </li>
               <li>
-                <strong>結果を確認する</strong>
-                <span>持ち主、所在地、面積を見やすく表示</span>
+                <strong>読み取り内容を確認</strong>
+                <span>所在地、地番、面積、所有者の流れを画面で確認できます。</span>
               </li>
               <li>
-                <strong>必要なら保存する</strong>
-                <span>CSVやExcelでそのまま保存</span>
+                <strong>必要な形式で保存</strong>
+                <span>確認後、CSVまたはExcelとして保存できます。</span>
               </li>
             </ol>
           </div>
@@ -72,7 +70,7 @@ export default function HomePage() {
             <div className="ad-label">広告</div>
             <AdSlot slot="1234567890" />
             <p className="ad-note">
-              広告はトップページのみに表示し、ツール処理画面には表示しません。
+              広告はトップページのみに表示しています。変換ツール画面には表示しません。
             </p>
           </div>
         </div>
@@ -80,33 +78,36 @@ export default function HomePage() {
 
       <section className="feature-grid shell">
         <article className="panel panel-card">
-          <h2>このツールでできること</h2>
+          <h2>整理できる項目</h2>
           <ul className="bullet-list">
-            <li>PDFの中の必要な情報を自動で読み取る</li>
-            <li>持ち主や面積を見やすく整理する</li>
-            <li>読み取った内容を画面ですぐ確認できる</li>
-            <li>CSVやExcelにまとめられる</li>
+            <li>表題部から所在地、地番、土地面積、建物面積を整理</li>
+            <li>甲区の所有者履歴を登記事件ごとに確認</li>
+            <li>共有者候補や持分候補を、確定値と分けて表示</li>
+            <li>画面の結果と同じ内容をCSV / Excelに出力</li>
           </ul>
         </article>
 
         <article className="panel panel-card">
-          <h2>安心して使えるポイント</h2>
+          <h2>確認しやすい設計</h2>
           <ul className="bullet-list">
-            <li>やることはPDFを入れるだけ</li>
-            <li>結果は画面でその場で確認できる</li>
-            <li>必要なときだけ保存できる</li>
-            <li>難しい専門用語なしで使える</li>
+            <li>処理中の進捗を表示し、読み取り状況が分かります</li>
+            <li>不確かな項目は無理に確定せず、確認しやすく表示します</li>
+            <li>読み取り方法や採用理由を、必要なときだけ開いて確認できます</li>
+            <li>生の読み取りテキストも残し、後から照合できます</li>
           </ul>
         </article>
       </section>
 
       <section className="home-cta shell">
         <article className="panel panel-card home-cta-panel">
-          <h2>準備は完了です。まず1件、PDFで試してみましょう。</h2>
-          <p>
-            画面で結果を確認してから保存できるため、いきなりダウンロードだけで終わることはありません。
-            はじめてでも迷わず使える導線にしています。
-          </p>
+          <div>
+            <p className="eyebrow">まずは1件から確認</p>
+            <h2>登記簿PDFを入れて、読み取り結果を確認してください。</h2>
+            <p>
+              正確性が必要な書類のため、出力前に画面上の結果とプレビューを確認する前提のツールです。
+              不明な項目は未検出として扱い、誤った値を確定表示しない方針にしています。
+            </p>
+          </div>
           <div className="home-cta-actions">
             <Link href="/tool" className="button button-primary">
               ツールを開く
@@ -118,7 +119,7 @@ export default function HomePage() {
       <footer className="site-footer shell">
         <p className="site-footer-copy">© {new Date().getFullYear()} 登記サクッと変換</p>
         <nav className="site-footer-nav">
-          <Link href="/tool">ツール</Link>
+          <Link href="/tool">変換ツール</Link>
           <Link href="/terms">利用規約</Link>
           <Link href="/privacy">プライバシーポリシー</Link>
         </nav>
