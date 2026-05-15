@@ -27,12 +27,9 @@ export function buildWorkbook(fields: Fields, _subject = '', _body = '') {
       : [['']])
   ];
 
-  const preview = [['抽出結果プレビュー'], [fields.raw || '']];
-
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '要約');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '概要');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(history), '履歴');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(preview), 'プレビュー');
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
@@ -45,8 +42,7 @@ export function buildCsv(fields: Fields) {
     ['地番', fields.number || ''],
     ['土地の面積', fields.area || ''],
     ['建物の面積', fields.buildingArea || ''],
-    ['持ち主の流れ', (fields.ownersHistory || []).join(' / ')],
-    ['抽出結果プレビュー', fields.raw || '']
+    ['持ち主の流れ', (fields.ownersHistory || []).join(' / ')]
   ];
 
   const csvBody = rows

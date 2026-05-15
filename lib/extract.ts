@@ -5,6 +5,7 @@ export type ExtractedFields = {
   buildingArea: string;
   owner: string;
   ownersHistory: string[];
+  ownershipDiagnostics?: string[];
   raw: string;
 };
 
@@ -20,12 +21,22 @@ type Sections = {
 type KoukuEntry = {
   startIndex: number;
   lines: string[];
+  eventType: KoukuEventType;
   purpose: string;
   receipt: string;
   cause: string;
   owners: string[];
+  shareCandidates: string[];
+  personCandidates: string[];
   invalid: boolean;
   ownershipEvent: boolean;
+};
+
+type KoukuEventType = 'full' | 'partial' | 'sharePartial' | 'unknown';
+
+type OwnershipState = {
+  owner: string;
+  diagnostics: string[];
 };
 
 const LABEL_NORMALIZERS: Array<[RegExp, string]> = [
@@ -659,6 +670,124 @@ function extractOwnerCandidates(lines: string[]) {
   return unique(cleaned);
 }
 
+function detectKoukuEventType(purpose: string, lines: string[]): KoukuEventType {
+  const joined = `${purpose} ${lines.join(' ')}`;
+  if (joined.includes('持分一部移転')) return 'sharePartial';
+  if (joined.includes('所有権一部移転')) return 'partial';
+  if (joined.includes('所有権保存') || joined.includes('所有権移転') || joined.includes('所有権')) return 'full';
+  if (/謖∝・荳驛ｨ遘ｻ霆｢/.test(joined)) return 'sharePartial';
+  if (/謇譛画ｨｩ荳驛ｨ遘ｻ霆｢/.test(joined)) return 'partial';
+  if (/謇譛画ｨｩ菫晏ｭ・|謇譛画ｨｩ遘ｻ霆｢|謇譛画ｨｩ/.test(joined)) return 'full';
+  return 'unknown';
+}
+
+function extractShareCandidates(lines: string[]) {
+  return unique(
+    lines
+      .flatMap((line) => [...line.matchAll(/謖∝・\s*[0-9]+蛻・・[0-9]+|[0-9]+\s*蛻・・\s*[0-9]+/g)].map((m) => m[0]))
+      .map((value) => cleanValue(value).replace(/\s/g, ''))
+  );
+}
+
+function extractPersonCandidatesFromSharedLines(lines: string[], owners: string[]) {
+  const fromLines = lines
+    .filter((line) => /蜈ｱ譛芽・|讓ｩ蛻ｩ閠・|謖∝・/.test(line))
+    .flatMap((line) => line.split(/[\/\s]+/))
+    .map(cleanValue)
+    .filter((value) => value.length >= 3)
+    .filter((value) => looksLikePerson(value) && !looksLikeCorp(value))
+    .filter((value) => !hasExplicitOcrNoise(value));
+
+  return unique([...owners.filter((owner) => looksLikePerson(owner) && !looksLikeCorp(owner)), ...fromLines]).slice(0, 12);
+}
+
+function hasSharedMarker(entry: KoukuEntry) {
+  return (
+    entry.eventType === 'partial' ||
+    entry.eventType === 'sharePartial' ||
+    entry.shareCandidates.length > 0 ||
+    entry.lines.some((line) => line.includes('共有者') || line.includes('持分')) ||
+    entry.lines.some((line) => /蜈ｱ譛芽・|謖∝・/.test(line))
+  );
+}
+
+function isLikelyEarnestOne(value: string) {
+  return value.includes('アーネストワン') || /繧｢繝ｼ繝阪せ繝医Ρ繝ｳ/.test(value);
+}
+
+function summarizeKoukuEntry(entry: KoukuEntry) {
+  const parts: string[] = [];
+  if (entry.purpose) parts.push(entry.purpose);
+  if (entry.receipt) parts.push(`receipt ${entry.receipt}`);
+  if (entry.cause) parts.push(`cause ${entry.cause}`);
+  if (entry.owners.length > 0) parts.push(`${hasSharedMarker(entry) ? 'co-owner candidate' : 'owner'} ${entry.owners.join(' / ')}`);
+  if (hasSharedMarker(entry) && entry.owners.length === 0) parts.push('co-owner candidate exists');
+  if (entry.shareCandidates.length > 0) parts.push(`share ${entry.shareCandidates.join(' / ')}`);
+  if (entry.personCandidates.length > 0) parts.push(`person OCR candidate ${entry.personCandidates.join(' / ')}`);
+  return cleanHistoryItem(parts.join(' / '));
+}
+
+function buildOwnershipState(entries: KoukuEntry[]): OwnershipState {
+  const ownershipEntries = entries.filter((e) => e.ownershipEvent && !e.invalid);
+  const owners: string[] = [];
+  const diagnostics: string[] = [`Kouku event count: ${ownershipEntries.length}`];
+  let ambiguousShared = false;
+  let earnestOneSeen = false;
+  let hadSharedAfterEarnestOne = false;
+  let latestEvent = '';
+
+  for (const entry of ownershipEntries) {
+    const entryOwners = entry.owners.map(safeOwner).filter(Boolean);
+    const summary = summarizeKoukuEntry(entry);
+    if (summary) latestEvent = summary;
+
+    if (entryOwners.some(isLikelyEarnestOne)) earnestOneSeen = true;
+
+    const fullLikeEvent = entry.eventType === 'full' || (entry.eventType === 'unknown' && entryOwners.length > 0 && !hasSharedMarker(entry));
+
+    if (entry.eventType === 'full' && hasSharedMarker(entry) && entryOwners.length >= 2) {
+      owners.splice(0, owners.length, ...entryOwners);
+      diagnostics.push(`Full event contains multiple owners/share text; kept readable owner list: ${entryOwners.join(' / ')}`);
+      continue;
+    }
+
+    if (fullLikeEvent && !hasSharedMarker(entry)) {
+      if (entryOwners.length > 0) {
+        owners.splice(0, owners.length, ...entryOwners);
+        diagnostics.push(`Full ownership event replaced owners: ${entryOwners.join(' / ')}`);
+      }
+      continue;
+    }
+
+    if (entry.eventType === 'partial' || entry.eventType === 'sharePartial' || hasSharedMarker(entry)) {
+      ambiguousShared = true;
+      if (earnestOneSeen || owners.some(isLikelyEarnestOne)) hadSharedAfterEarnestOne = true;
+      for (const owner of entryOwners) {
+        if (!owners.includes(owner)) owners.push(owner);
+      }
+      diagnostics.push(`Partial/share event retained: ${summary || entry.eventType}`);
+    }
+  }
+
+  const nonEarnestOwners = owners.filter((owner) => !isLikelyEarnestOne(owner));
+  let owner = '';
+  if (ambiguousShared) {
+    owner = nonEarnestOwners.length >= 2 ? nonEarnestOwners.join(' / ') : '共有者候補あり';
+  } else {
+    owner = owners.join(' / ');
+  }
+
+  if (hadSharedAfterEarnestOne) {
+    owner = '共有者候補あり';
+    diagnostics.push('Later partial/share transfer exists; Earnest One was not adopted as sole latest owner.');
+  }
+
+  if (latestEvent) diagnostics.push(`Latest event used for owner judgment: ${latestEvent}`);
+  diagnostics.push(`Assembled ownership state: ${owner || 'unconfirmed'}`);
+
+  return { owner, diagnostics: unique(diagnostics) };
+}
+
 function isInvalidKoukuEntry(cause: string, lines: string[]) {
   const joined = `${cause} ${lines.join(' ')}`;
   if (/抹消|全部抹消|一部抹消/.test(joined)) return true;
@@ -717,16 +846,22 @@ function parseKoukuEntries(koukuLines: string[]) {
     const receipt = extractReceipt(block.lines);
     const cause = extractCause(block.lines);
     const owners = extractOwnerCandidates(block.lines);
+    const eventType = detectKoukuEventType(purpose, block.lines);
+    const shareCandidates = extractShareCandidates(block.lines);
+    const personCandidates = extractPersonCandidatesFromSharedLines(block.lines, owners);
     const invalid = isInvalidKoukuEntry(cause, block.lines);
     const ownershipEvent = /所有権|移転|売買|相続|贈与/.test(`${cause} ${block.lines.join(' ')}`);
 
     return {
       startIndex: block.startIndex,
       lines: block.lines,
+      eventType,
       purpose,
       receipt,
       cause,
       owners,
+      shareCandidates,
+      personCandidates,
       invalid,
       ownershipEvent
     };
@@ -832,18 +967,19 @@ export function extractToukiFields(text: string): ExtractedFields {
   const buildingArea = extractBuildingAreaFromTitle(sections.title, sections.all);
 
   const ownersHistory = extractOwnersHistory(koukuEntries, sections.all);
-  const owners = extractLatestOwnersFromKouku(koukuEntries);
+  const ownershipState = buildOwnershipState(koukuEntries);
   const hasKoukuOwnershipEntries = koukuEntries.some((e) => e.ownershipEvent && !e.invalid);
   const fallback = hasKoukuOwnershipEntries ? [] : fallbackOwners(sections.all, ownersHistory);
-  const ownerList = (owners.length > 0 ? owners : fallback).map(safeOwner).filter(Boolean);
+  const fallbackOwnerList = fallback.map(safeOwner).filter(Boolean);
 
   return {
     location: safeLocation(location),
     number: safeNumber(number),
     area: safeArea(area),
     buildingArea: safeArea(buildingArea),
-    owner: ownerList.join(' / '),
+    owner: ownershipState.owner || fallbackOwnerList.join(' / '),
     ownersHistory: ownersHistory.filter((v) => isPlausibleText(v) && !looksLikeOcrGarbage(v)),
+    ownershipDiagnostics: ownershipState.diagnostics,
     raw: normalized
   };
 }

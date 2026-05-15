@@ -310,7 +310,7 @@ const cases = [
       number: '',
       area: '',
       buildingArea: '',
-      owner: '',
+      owner: '共有者候補あり',
       ownersHistoryIncludes: ['所有権移転', '所有権一部移転', '原因: 令和2年1月30日売買'],
       ownersHistoryExcludes: ['株式会社危険銀行', '郡山市大槻町字葉山下2番21']
     }
@@ -344,7 +344,7 @@ const cases = [
       number: '',
       area: '',
       buildingArea: '',
-      owner: '',
+      owner: '共有者候補あり',
       ownersHistoryIncludes: ['所有権移転', '持分一部移転', '原因: 令和2年1月30日売買', '株式会社アーネストワン'],
       ownersHistoryExcludes: [
         '遷委番号ーー登記の目的',
@@ -382,7 +382,7 @@ const cases = [
       number: '53-1',
       area: '88.00㎡',
       buildingArea: '',
-      owner: '',
+      owner: '共有者候補あり',
       ownersHistoryIncludes: [
         '所有権移転',
         '所有権一部移転',
@@ -432,7 +432,7 @@ WESS Mow BRd Ana 2th22
       number: '53-1',
       area: '88.00㎡',
       buildingArea: '',
-      owner: '',
+      owner: '共有者候補あり',
       ownersHistoryIncludes: [
         '所有権移転',
         '所有権一部移転',
@@ -483,6 +483,53 @@ WESS Mow BRd Ana 2th22
       ownersHistoryIncludes: ['所有権保存', '受付: 第3001号', '佐々木五郎'],
       ownersHistoryExcludes: ['地図番号 999']
     }
+  },
+  {
+    name: '所有権一部移転と持分一部移転が続く場合は過去法人を単独最新ownerにしない',
+    text: `
+表題部
+所在 郡山市大槻町字葉山下
+地番 53-1
+地積 88.00㎡
+権利部
+甲区
+第2548号
+所有権移転
+原因 令和2年1月30日 売買
+所有者 株式会社アーネストワン
+第21289号
+所有権一部移転
+原因 令和2年7月27日 売買
+共有者 波旭雄二
+持分38分の1
+第24674号
+株式会社アーネストワン 持分一部移転
+原因 令和2年8月28日 売買
+共有者 濾辺淳一
+持分38分の1
+`,
+    expected: {
+      location: '郡山市大槻町字葉山下',
+      number: '53-1',
+      area: '88.00㎡',
+      buildingArea: '',
+      owner: '共有者候補あり',
+      ownersHistoryIncludes: [
+        '所有権移転',
+        '所有権一部移転',
+        '持分一部移転',
+        '受付: 第2548号',
+        '受付: 第21289号',
+        '受付: 第24674号',
+        '持分38分の1',
+        '株式会社アーネストワン'
+      ],
+      diagnosticsIncludes: [
+        'Later partial/share transfer exists',
+        'Earnest One was not adopted as sole latest owner',
+        'Kouku event count: 3'
+      ]
+    }
   }
 ];
 
@@ -510,6 +557,14 @@ function assertExcludes(errors, label, actualValues, excludedValues = []) {
   }
 }
 
+function assertNoStandaloneHistoryAtoms(errors, actualValues) {
+  for (const value of actualValues) {
+    if (/^受付:?\s*第\d+号$|^第\d+号$|^(令和|平成|昭和)\d+年\d+月\d+日/.test(value.trim())) {
+      errors.push(`ownersHistory: standalone date/receipt history item is not allowed: "${value}"`);
+    }
+  }
+}
+
 let failed = 0;
 
 for (const testCase of cases) {
@@ -524,6 +579,8 @@ for (const testCase of cases) {
   assertEqual(errors, 'owner', actual.owner, expected.owner);
   assertIncludes(errors, 'ownersHistory', actual.ownersHistory, expected.ownersHistoryIncludes);
   assertExcludes(errors, 'ownersHistory', actual.ownersHistory, expected.ownersHistoryExcludes);
+  assertNoStandaloneHistoryAtoms(errors, actual.ownersHistory);
+  assertIncludes(errors, 'ownershipDiagnostics', actual.ownershipDiagnostics || [], expected.diagnosticsIncludes);
   assertIncludes(errors, 'raw', [actual.raw], expected.rawIncludes);
 
   if (errors.length > 0) {
@@ -554,10 +611,10 @@ const csv = buildCsv({
   diagnostics: '混入禁止'
 });
 
-if (csv.includes('diagnostics') || csv.includes('混入禁止')) {
+if (csv.includes('diagnostics') || csv.includes('混入禁止') || csv.includes('preview')) {
   console.error('\nFAIL CSV出力に診断データを混入しない');
   process.exit(1);
 }
-console.log('PASS CSV出力に診断データを混入しない');
+console.log('PASS CSV出力に診断データ/raw OCRを混入しない');
 
 console.log(`\n${cases.length} extract checks passed.`);
