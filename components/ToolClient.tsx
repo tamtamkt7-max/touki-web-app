@@ -19,6 +19,7 @@ type ExtractedFields = {
   owner?: string;
   ownersHistory?: string[];
   ownershipDiagnostics?: string[];
+  fieldDiagnostics?: string[];
   raw?: string;
 };
 
@@ -223,6 +224,7 @@ function normalizeFields(fields: ExtractedFields = {}): ExtractedFields {
     owner: fields.owner || '',
     ownersHistory: Array.isArray(fields.ownersHistory) ? fields.ownersHistory.filter(Boolean) : [],
     ownershipDiagnostics: Array.isArray(fields.ownershipDiagnostics) ? fields.ownershipDiagnostics.filter(Boolean) : [],
+    fieldDiagnostics: Array.isArray(fields.fieldDiagnostics) ? fields.fieldDiagnostics.filter(Boolean) : [],
     raw: fields.raw || ''
   };
 }
@@ -424,6 +426,8 @@ function buildStructureSummary(text = '', fields: ExtractedFields) {
     `ownersHistory有効件数: ${fields.ownersHistory?.length || 0}件`,
     `甲区所有関係診断: ${fields.ownershipDiagnostics?.length || 0}件`,
     ...(fields.ownershipDiagnostics || []),
+    `Title/field diagnostics: ${fields.fieldDiagnostics?.length || 0} items`,
+    ...(fields.fieldDiagnostics || []),
     `ownersHistoryノイズ除外目安: ${countLikelyHistoryNoise(text)}行`,
     `最新所有者: ${fields.owner ? '確定候補あり' : '未検出（最新有効エントリの人名/法人名根拠不足）'}`,
     `CSV/Excel確定値: owner=${fields.owner || '空欄'} / location=${fields.location || '空欄'} / number=${fields.number || '空欄'} / area=${fields.area || '空欄'} / buildingArea=${fields.buildingArea || '空欄'}`

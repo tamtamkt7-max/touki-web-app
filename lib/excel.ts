@@ -10,21 +10,25 @@ type Fields = {
   raw?: string;
 };
 
+function displayValue(value?: string) {
+  return value && value.trim() ? value : '未検出';
+}
+
 export function buildWorkbook(fields: Fields, _subject = '', _body = '') {
   const summary = [
     ['項目', '値'],
-    ['最新の持ち主', fields.owner || ''],
-    ['所在地', fields.location || ''],
-    ['地番', fields.number || ''],
-    ['土地の面積', fields.area || ''],
-    ['建物の面積', fields.buildingArea || '']
+    ['最新の持ち主', displayValue(fields.owner)],
+    ['所在地', displayValue(fields.location)],
+    ['地番', displayValue(fields.number)],
+    ['土地の面積', displayValue(fields.area)],
+    ['建物の面積', displayValue(fields.buildingArea)]
   ];
 
   const history = [
     ['持ち主の流れ'],
     ...((fields.ownersHistory || []).length
       ? (fields.ownersHistory || []).map((v) => [v])
-      : [['']])
+      : [['未検出']])
   ];
 
   const wb = XLSX.utils.book_new();
@@ -37,12 +41,12 @@ export function buildWorkbook(fields: Fields, _subject = '', _body = '') {
 export function buildCsv(fields: Fields) {
   const rows = [
     ['項目', '値'],
-    ['最新の持ち主', fields.owner || ''],
-    ['所在地', fields.location || ''],
-    ['地番', fields.number || ''],
-    ['土地の面積', fields.area || ''],
-    ['建物の面積', fields.buildingArea || ''],
-    ['持ち主の流れ', (fields.ownersHistory || []).join(' / ')]
+    ['最新の持ち主', displayValue(fields.owner)],
+    ['所在地', displayValue(fields.location)],
+    ['地番', displayValue(fields.number)],
+    ['土地の面積', displayValue(fields.area)],
+    ['建物の面積', displayValue(fields.buildingArea)],
+    ['持ち主の流れ', (fields.ownersHistory || []).length ? (fields.ownersHistory || []).join(' / ') : '未検出']
   ];
 
   const csvBody = rows

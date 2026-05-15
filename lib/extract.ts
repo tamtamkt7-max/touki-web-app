@@ -6,6 +6,7 @@ export type ExtractedFields = {
   owner: string;
   ownersHistory: string[];
   ownershipDiagnostics?: string[];
+  fieldDiagnostics?: string[];
   raw: string;
 };
 
@@ -591,6 +592,28 @@ function extractBuildingAreaFromTitle(title: string[], all: string[]) {
   return '';
 }
 
+function buildFieldDiagnostics(sections: Sections, fields: Omit<ExtractedFields, 'raw'>) {
+  const titleText = sections.title.join(' ');
+  const allText = sections.all.join(' ');
+  const titleLikely = /陦ｨ鬘碁Κ|蝨溷慍縺ｮ陦ｨ遉ｺ|蟒ｺ迚ｩ縺ｮ陦ｨ遉ｺ|謇蝨ｨ|蝨ｰ逡ｪ|蝨ｰ遨・/.test(titleText);
+  const buildingTitleLikely = /蟒ｺ迚ｩ縺ｮ陦ｨ遉ｺ|蠎企擇遨・|蟒ｺ迚ｩ髱｢遨・|遞ｮ鬘・|讒矩/.test(titleText);
+  const collateralFound = sections.collateral.length > 0 || /蜈ｱ蜷梧球菫晉岼骭ｲ|蜈ｱ蜷梧球菫・/.test(allText);
+  const otsukuFound = sections.otsuku.length > 0 || /荵吝玄|謚ｵ蠖捺ｨｩ/.test(allText);
+
+  return [
+    `Title section: ${titleLikely ? 'found' : 'not found'}`,
+    `Title lines inspected: ${sections.title.length}`,
+    `Location: ${fields.location ? `accepted from title section: ${fields.location}` : 'not detected; rejected owner-address/collateral/noisy candidates'}`,
+    `Number: ${fields.number ? `accepted near title land-number label: ${fields.number}` : 'not detected; map-number/address-number/collateral candidates rejected'}`,
+    `Land area: ${fields.area ? `accepted near title land-area label: ${fields.area}` : 'not detected; unlabeled small area/debt amount candidates rejected'}`,
+    `Building title: ${buildingTitleLikely ? 'found' : 'not found'}`,
+    `Building area: ${fields.buildingArea ? `accepted near floor-area/building-area label: ${fields.buildingArea}` : 'not detected or building title not present'}`,
+    `Otsuku exclusion: ${otsukuFound ? 'found and excluded' : 'none'}`,
+    `Collateral exclusion: ${collateralFound ? 'found and excluded' : 'none'}`,
+    `Export values: owner=${fields.owner || 'not detected'} / location=${fields.location || 'not detected'} / number=${fields.number || 'not detected'} / area=${fields.area || 'not detected'} / buildingArea=${fields.buildingArea || 'not detected'}`
+  ];
+}
+
 function isEntryStart(line: string) {
   if (HEADER_LINE.test(line)) return false;
   if (/^順位番号\s*\d+/.test(line)) return true;
@@ -909,7 +932,9 @@ function extractOwnersHistory(entries: KoukuEntry[], allLines: string[]) {
       if (e.purpose) parts.push(e.purpose);
       if (e.receipt) parts.push(`受付: ${e.receipt}`);
       if (e.cause) parts.push(`原因: ${e.cause}`);
-      if (e.owners.length > 0) parts.push(`権利者: ${e.owners.join(' / ')}`);
+      if (e.owners.length > 0) parts.push(`${hasSharedMarker(e) ? '共有者候補' : '権利者'}: ${e.owners.join(' / ')}`);
+      if (hasSharedMarker(e) && e.owners.length === 0) parts.push('共有者候補あり');
+      if (hasSharedMarker(e) && e.personCandidates.length > 0) parts.push(`人名OCR候補: ${e.personCandidates.join(' / ')}`);
       const shareLine = e.lines.find((line) => /持分\s*[0-9]+分の[0-9]+/.test(line));
       if (shareLine) {
         const share = shareLine.match(/持分\s*[0-9]+分の[0-9]+/);
@@ -971,15 +996,19 @@ export function extractToukiFields(text: string): ExtractedFields {
   const hasKoukuOwnershipEntries = koukuEntries.some((e) => e.ownershipEvent && !e.invalid);
   const fallback = hasKoukuOwnershipEntries ? [] : fallbackOwners(sections.all, ownersHistory);
   const fallbackOwnerList = fallback.map(safeOwner).filter(Boolean);
-
-  return {
+  const resultWithoutDiagnostics = {
     location: safeLocation(location),
     number: safeNumber(number),
     area: safeArea(area),
     buildingArea: safeArea(buildingArea),
     owner: ownershipState.owner || fallbackOwnerList.join(' / '),
     ownersHistory: ownersHistory.filter((v) => isPlausibleText(v) && !looksLikeOcrGarbage(v)),
-    ownershipDiagnostics: ownershipState.diagnostics,
+    ownershipDiagnostics: ownershipState.diagnostics
+  };
+
+  return {
+    ...resultWithoutDiagnostics,
+    fieldDiagnostics: buildFieldDiagnostics(sections, resultWithoutDiagnostics),
     raw: normalized
   };
 }

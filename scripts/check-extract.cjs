@@ -2,6 +2,7 @@ const fs = require('fs');
 const Module = require('module');
 const path = require('path');
 const ts = require('typescript');
+const XLSX = require('xlsx');
 
 const rootDir = path.resolve(__dirname, '..');
 const extractPath = path.join(rootDir, 'lib', 'extract.ts');
@@ -26,7 +27,7 @@ function loadTypeScriptModule(filePath) {
 }
 
 const { extractToukiFields, normalizeOcrTextForExtractionWithReport } = loadTypeScriptModule(extractPath);
-const { buildCsv } = loadTypeScriptModule(excelPath);
+const { buildCsv, buildWorkbook } = loadTypeScriptModule(excelPath);
 
 const cases = [
   {
@@ -530,6 +531,69 @@ WESS Mow BRd Ana 2th22
         'Kouku event count: 3'
       ]
     }
+  },
+  {
+    name: '表題部横連結と共同担保目録を区別して確定値を取る',
+    text: `
+土地の表示
+所在 郡山市大槻町字葉山下 地図番号 999 地番 53=1 地積 88.00平方メートル
+原因及びその日付 登記の日付
+権利部
+甲区
+第2548号
+所有権移転
+原因 令和2年1月30日 売買
+所有者 株式会社アーネストワン
+第21289号
+所有権一部移転
+原因 令和2年7月27日 売買
+共有者 渡追雄二
+持分38分の1
+権利部（乙区）
+抵当権設定
+抵当権者 株式会社危険銀行
+債権額 金5000万円
+共同担保目録
+郡山市大槻町字葉山下2番22の土地
+`,
+    expected: {
+      location: '郡山市大槻町字葉山下',
+      number: '53-1',
+      area: '88.00㎡',
+      buildingArea: '',
+      owner: '共有者候補あり',
+      ownersHistoryIncludes: ['所有権移転', '所有権一部移転', '持分38分の1', '株式会社アーネストワン'],
+      ownersHistoryExcludes: ['株式会社危険銀行', '債権額', '共同担保目録', '2番22の土地'],
+      fieldDiagnosticsIncludes: ['Location: accepted from title section', 'Number: accepted near title land-number label', 'Collateral exclusion: found and excluded']
+    }
+  },
+  {
+    name: '建物表題部なしでは単独5㎡や乙区金額を面積にしない',
+    text: `
+2020/09/04 現用の情報です
+表題部
+5㎡
+権利部
+甲区
+第1号
+所有権保存
+所有者 山田太郎
+権利部（乙区）
+抵当権設定
+債権額 金500万円
+利息 年2.0%
+損害金 年14.0%
+`,
+    expected: {
+      location: '',
+      number: '',
+      area: '',
+      buildingArea: '',
+      owner: '山田太郎',
+      ownersHistoryIncludes: ['所有権保存', '山田太郎'],
+      ownersHistoryExcludes: ['債権額', '利息', '損害金'],
+      fieldDiagnosticsIncludes: ['Land area: not detected', 'Building title: not found', 'Otsuku exclusion: found and excluded']
+    }
   }
 ];
 
@@ -581,6 +645,7 @@ for (const testCase of cases) {
   assertExcludes(errors, 'ownersHistory', actual.ownersHistory, expected.ownersHistoryExcludes);
   assertNoStandaloneHistoryAtoms(errors, actual.ownersHistory);
   assertIncludes(errors, 'ownershipDiagnostics', actual.ownershipDiagnostics || [], expected.diagnosticsIncludes);
+  assertIncludes(errors, 'fieldDiagnostics', actual.fieldDiagnostics || [], expected.fieldDiagnosticsIncludes);
   assertIncludes(errors, 'raw', [actual.raw], expected.rawIncludes);
 
   if (errors.length > 0) {
@@ -616,5 +681,53 @@ if (csv.includes('diagnostics') || csv.includes('混入禁止') || csv.includes(
   process.exit(1);
 }
 console.log('PASS CSV出力に診断データ/raw OCRを混入しない');
+
+const exportFields = {
+  owner: '共有者候補あり',
+  location: '郡山市大槻町字葉山下',
+  number: '53-1',
+  area: '88.00㎡',
+  buildingArea: '',
+  ownersHistory: ['所有権一部移転 / 受付 第21289号 / 共有者候補あり / 持分38分の1'],
+  raw: 'raw OCR should not be exported',
+  diagnostics: 'diagnostics should not be exported'
+};
+const exportCsv = buildCsv(exportFields);
+if (
+  !exportCsv.includes('共有者候補あり') ||
+  !exportCsv.includes('郡山市大槻町字葉山下') ||
+  !exportCsv.includes('53-1') ||
+  !exportCsv.includes('88.00㎡') ||
+  !exportCsv.includes('未検出') ||
+  exportCsv.includes('raw OCR should not be exported') ||
+  exportCsv.includes('diagnostics should not be exported')
+) {
+  console.error('\nFAIL CSV出力の確定値整合性');
+  console.error(exportCsv);
+  process.exit(1);
+}
+console.log('PASS CSV出力の確定値整合性');
+
+const workbookBuffer = buildWorkbook(exportFields);
+const workbook = XLSX.read(workbookBuffer, { type: 'buffer' });
+const workbookText = workbook.SheetNames
+  .flatMap((name) => XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1 }))
+  .flat()
+  .map(String)
+  .join('\n');
+if (
+  !workbookText.includes('共有者候補あり') ||
+  !workbookText.includes('郡山市大槻町字葉山下') ||
+  !workbookText.includes('53-1') ||
+  !workbookText.includes('88.00㎡') ||
+  !workbookText.includes('未検出') ||
+  workbookText.includes('raw OCR should not be exported') ||
+  workbookText.includes('diagnostics should not be exported')
+) {
+  console.error('\nFAIL Excel出力の確定値整合性');
+  console.error(workbookText);
+  process.exit(1);
+}
+console.log('PASS Excel出力の確定値整合性');
 
 console.log(`\n${cases.length} extract checks passed.`);
