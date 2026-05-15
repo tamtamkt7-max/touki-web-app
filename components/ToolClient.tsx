@@ -96,6 +96,25 @@ type OcrDiagnostics = {
   extractionAccepted?: boolean;
 };
 
+type ProgressState = {
+  percent: number;
+  step: string;
+  note: string;
+  tone?: 'normal' | 'error' | 'done';
+};
+
+const INITIAL_PROGRESS: ProgressState = {
+  percent: 0,
+  step: '待機中',
+  note: 'PDFを選択すると読み取りを開始します。'
+};
+
+const PROGRESS_NOTES = {
+  start: '1〜2ページ程度なら通常は短時間で完了します。',
+  ocr: 'スキャン品質によっては少し時間がかかる場合があります。',
+  review: '読み取り結果は保存前に画面で確認できます。'
+};
+
 function hasEnoughText(text: string) {
   return text.replace(/\s/g, '').length >= 20;
 }
@@ -232,21 +251,21 @@ function normalizeFields(fields: ExtractedFields = {}): ExtractedFields {
 function sourceLabel(source: TextSource) {
   switch (source) {
     case 'text-layer':
-      return '文字層';
+      return 'PDF内の文字情報';
     case 'server':
-      return 'サーバー解析';
+      return 'サーバー側の読み取り';
     case 'ocr-original':
-      return 'OCR original';
+      return 'OCR 標準';
     case 'ocr-grayscale':
-      return 'OCR grayscale';
+      return 'OCR グレースケール';
     case 'ocr-light':
-      return 'OCR light';
+      return 'OCR 明るさ補正';
     case 'ocr-contrast':
-      return 'OCR contrast';
+      return 'OCR コントラスト補正';
     case 'ocr-binary':
-      return 'OCR binary';
+      return 'OCR 白黒補正';
     case 'ocr-normalized':
-      return 'OCR normalized';
+      return 'OCR 正規化後';
   }
 }
 
@@ -846,27 +865,27 @@ async function extractTextWithOcr(file: File, onStatus?: (v: string) => void): P
       {
         source: 'ocr-original',
         canvas: pages[i].original,
-        label: `OCRで読み取り中… ${pageNo}/${pages.length}ページ`
+        label: `標準画像で文字を読み取っています ${pageNo}/${pages.length}ページ`
       },
       {
         source: 'ocr-grayscale',
         canvas: pages[i].grayscale,
-        label: `グレースケールで読み取り中… ${pageNo}/${pages.length}ページ`
+        label: `グレースケール画像で確認しています ${pageNo}/${pages.length}ページ`
       },
       {
         source: 'ocr-light',
         canvas: pages[i].light,
-        label: `軽く補正して読み取り中… ${pageNo}/${pages.length}ページ`
+        label: `明るさを補正して確認しています ${pageNo}/${pages.length}ページ`
       },
       {
         source: 'ocr-contrast',
         canvas: pages[i].contrast,
-        label: `コントラスト補正して読み取り中… ${pageNo}/${pages.length}ページ`
+        label: `コントラストを補正して確認しています ${pageNo}/${pages.length}ページ`
       },
       {
         source: 'ocr-binary',
         canvas: pages[i].binary,
-        label: `二値化して読み取り中… ${pageNo}/${pages.length}ページ`
+        label: `白黒補正した画像で確認しています ${pageNo}/${pages.length}ページ`
       }
     ];
 
@@ -977,9 +996,20 @@ export function ToolClient() {
   const [doneMessage, setDoneMessage] = useState('');
   const [qualityWarning, setQualityWarning] = useState('');
   const [readMeta, setReadMeta] = useState('');
+  const [progress, setProgress] = useState<ProgressState>(INITIAL_PROGRESS);
   const [ocrDiagnostics, setOcrDiagnostics] = useState<OcrDiagnostics | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLElement | null>(null);
+
+  const updateProgress = (percent: number, step: string, note = PROGRESS_NOTES.review, tone: ProgressState['tone'] = 'normal') => {
+    setProgress({
+      percent: Math.max(0, Math.min(100, Math.round(percent))),
+      step,
+      note,
+      tone
+    });
+    setStatusText(step);
+  };
 
   const summaryCards = useMemo(() => {
     if (!result?.fields) return [];
@@ -1009,6 +1039,8 @@ export function ToolClient() {
     }
   }, [result]);
 
+  const showProgress = loading || progress.tone === 'done' || progress.tone === 'error';
+
   async function handleFile(file?: File | null) {
     if (!file) return;
 
@@ -1025,11 +1057,12 @@ export function ToolClient() {
     setQualityWarning('');
     setReadMeta('');
     setOcrDiagnostics(null);
-    setStatusText('PDFの文字を確認しています…');
+    updateProgress(8, 'PDFを確認しています', PROGRESS_NOTES.start);
 
     try {
       const candidates: TextCandidate[] = [];
       let latestOcrDiagnostics: OcrDiagnostics | null = null;
+      let ocrProgress = 42;
       const addCandidate = (
         source: TextCandidate['source'],
         rawText: string,
@@ -1050,15 +1083,16 @@ export function ToolClient() {
           .filter((candidate) => isPreviewableQuality(candidate.quality))
           .sort((a, b) => previewScore(b) - previewScore(a))[0];
 
+      updateProgress(16, '文字情報を読み取っています', PROGRESS_NOTES.start);
       const textLayer = await extractTextLayerFromPdf(file);
 
       if (hasEnoughText(textLayer)) {
-        setStatusText('文字を整理しています…');
+        updateProgress(28, 'PDF内の文字情報を整理しています', PROGRESS_NOTES.review);
         const parsed = await parseWithRawText(textLayer);
         addCandidate('text-layer', textLayer, parsed);
       }
 
-      setStatusText('別の方法でPDFを確認しています…');
+      updateProgress(36, '別の読み取り方法を確認しています', PROGRESS_NOTES.review);
       try {
         const serverParsed = await parseWithServerPdf(file);
         addCandidate('server', serverParsed.fields.raw || '', serverParsed);
@@ -1068,10 +1102,14 @@ export function ToolClient() {
 
       const bestBeforeOcr = chooseBestCandidate();
       if (!bestBeforeOcr || !isStrongQuality(bestBeforeOcr.quality)) {
-        const ocrResult = await extractTextWithOcr(file, setStatusText);
+        updateProgress(42, 'OCR候補を比較しています', PROGRESS_NOTES.ocr);
+        const ocrResult = await extractTextWithOcr(file, (message) => {
+          ocrProgress = Math.min(78, ocrProgress + 3);
+          updateProgress(ocrProgress, message || 'OCR候補を比較しています', PROGRESS_NOTES.ocr);
+        });
 
         if (hasEnoughText(ocrResult.text)) {
-          setStatusText('読み取った内容を整理しています…');
+          updateProgress(82, '登記情報を整理しています', PROGRESS_NOTES.review);
           const normalizationReport = normalizeOcrTextForExtractionWithReport(ocrResult.text);
           const normalizedExtractionText = normalizationReport.text;
           const parseText = hasEnoughText(normalizedExtractionText)
@@ -1109,6 +1147,7 @@ export function ToolClient() {
       }
 
       const best = chooseBestCandidate();
+      updateProgress(90, '結果をまとめています', PROGRESS_NOTES.review);
       const usableBest = best && isUsableQuality(best.quality, best.source) ? best : null;
       const previewBest = choosePreviewCandidate();
       const previewText = previewBest?.rawText || '';
@@ -1143,11 +1182,13 @@ export function ToolClient() {
         setResult({
           fields
         });
-        setDoneMessage('抽出が完了しました。内容を確認してください。');
+        updateProgress(100, '読み取り結果をまとめました', '内容を確認して、必要に応じてCSVまたはExcelで保存できます。', 'done');
+        setDoneMessage('読み取り結果を確認してください。');
         setQualityWarning(usableBest ? '' : 'PDFの文字認識が不安定です。プレビューを確認し、必要に応じて手入力してください。');
       } else {
         setResult(emptyParseResponse(previewText));
         setDoneMessage('');
+        updateProgress(100, '確認が必要な結果です', '文字の読み取りに不安定な箇所があります。プレビューをご確認ください。', 'done');
         setQualityWarning(
           'PDFの文字認識が不安定です。プレビューを確認し、必要に応じて手入力してください。'
         );
@@ -1155,6 +1196,12 @@ export function ToolClient() {
       setStatusText('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PDFの読み取りに失敗しました。');
+      setProgress({
+        percent: 100,
+        step: '処理を中断しました',
+        note: 'エラー内容を確認し、PDFを選び直してください。',
+        tone: 'error'
+      });
       setStatusText('');
       setDoneMessage('');
       setQualityWarning('');
@@ -1200,6 +1247,7 @@ export function ToolClient() {
     setQualityWarning('');
     setReadMeta('');
     setOcrDiagnostics(null);
+    setProgress(INITIAL_PROGRESS);
     if (inputRef.current) inputRef.current.value = '';
   }
 
@@ -1251,6 +1299,22 @@ export function ToolClient() {
         </div>
       </section>
 
+      {showProgress ? (
+        <section className={`progress-panel progress-panel-${progress.tone || 'normal'}`} aria-live="polite">
+          <div className="progress-header">
+            <div>
+              <p className="progress-kicker">読み取り状況</p>
+              <h2>{progress.step}</h2>
+            </div>
+            <strong>{progress.percent}%</strong>
+          </div>
+          <div className="progress-track" aria-label="処理の進捗">
+            <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
+          </div>
+          <p className="progress-note">{progress.note}</p>
+        </section>
+      ) : null}
+
       <div className="tool-pills">
         <span>PDFを入れるだけ</span>
         <span>画面ですぐ確認</span>
@@ -1282,10 +1346,15 @@ export function ToolClient() {
                 {detailRows.map(([label, value]) => (
                   <div className="detail-row" key={String(label)}>
                     <div className="detail-label">{label}</div>
-                    <div className="detail-value">{value}</div>
+                    <div className={`detail-value ${value === '未検出' ? 'is-missing' : ''}`}>{value}</div>
                   </div>
                 ))}
               </div>
+              {detailRows.some(([, value]) => value === '未検出') ? (
+                <p className="result-note">
+                  読み取り結果から確認できない項目があります。プレビューを確認し、必要に応じて手入力で補ってください。
+                </p>
+              ) : null}
 
               <div className="result-card-header" style={{ marginTop: 20 }}>
                 <h3>持ち主の流れ</h3>
@@ -1392,7 +1461,7 @@ export function ToolClient() {
                     ))}
 
                     <section style={{ display: 'grid', gap: 8 }}>
-                      <div className="muted">normalizedExtractionText</div>
+                      <div className="muted">正規化後の読み取りテキスト</div>
                       <div className="muted">{formatExtractedSummary(ocrDiagnostics.normalizedExtracted)}</div>
                       <textarea
                         readOnly
